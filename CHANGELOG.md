@@ -8,6 +8,9 @@
 - Profile management interface (create, edit, delete notification profiles)
 - Form validation for Apprise URLs and configuration items
 
+### Fixed
+- Issue with delete confirmation popup appearing on page load in notification settings
+
 ## [1.1.0] - 2025-08-29
 
 ### Added
