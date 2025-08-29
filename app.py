@@ -1,3 +1,4 @@
+import dash
 from dash import Dash, html, dcc
 from mylibrary import *
 import yaml
@@ -149,7 +150,7 @@ def serve_layout():
                         id = 'spinner',
                         overlay_style = {"visibility":"visible", "filter": "blur(2px)"},
                         type = "circle",
-                        children = [home_content]
+                        children = [dash.page_container]
                     )
                 ]),
                 html.Div(className = 'box', children = [

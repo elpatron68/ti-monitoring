@@ -47,7 +47,8 @@ def main():
         try:
             with open(config_notifications_file, 'r') as f:
                 notifications_config = yaml.safe_load(f)
-            if notifications_config.get('enabled', False):
+            # notifications_config is a list, so we check if it's not empty instead of looking for 'enabled'
+            if notifications_config and len(notifications_config) > 0:
                 send_apprise_notifications(config_file_name, config_notifications_file, config_home_url)
         except Exception as e:
             print(f"Error with notifications: {e}")

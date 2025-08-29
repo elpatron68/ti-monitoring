@@ -38,25 +38,46 @@ def load_core_config():
 
 dash.register_page(__name__, path='/')
 
-@functools.lru_cache(maxsize=32)
 def create_accordion_element(group_name, group_data):
-    """Create accordion element with caching for repeated groups"""
+    """Create accordion element for a group of CIs"""
+    # Ensure group_data is a DataFrame and handle it properly
+    if hasattr(group_data, 'empty') and group_data.empty:
+        return html.Div(className='accordion-element', children=[
+            html.Div(className='accordion-element-title', children=[
+                html.Span(className='availability-icon unavailable'),
+                html.Span(className='group-name', children=f'{group_name} (0/0)'),
+                html.Span(className='expand-collapse-icon', children='+')
+            ]),
+            html.Div(className='accordion-element-content', children=[
+                html.P('Keine Daten verfügbar für diese Gruppe.')
+            ])
+        ])
+    
+    # Calculate availability statistics
+    current_availability_sum = group_data['current_availability'].sum()
+    total_count = len(group_data)
+    available_count = (group_data['current_availability'] == 1).sum()
+    
+    # Determine availability status
+    if current_availability_sum == total_count:
+        availability_class = 'available'
+    elif current_availability_sum == 0:
+        availability_class = 'unavailable'
+    else:
+        availability_class = 'impaired'
+    
     return html.Div(className='accordion-element', children = [
         html.Div(
             className='accordion-element-title',
             children = [
                 html.Span(
-                    className='availability-icon ' + (
-                        'available' if sum(group_data['current_availability']) == len(group_data)
-                        else 'unavailable' if sum(group_data['current_availability']) == 0
-                        else 'impaired'
-                    ),
+                    className=f'availability-icon {availability_class}',
                 ),
                 html.Span(
                     className = 'group-name',
-                    children = group_name + ' (' + str(sum(group_data['current_availability'] == 1)) + '/' + str(len(group_data)) + ')'
+                    children = f'{group_name} ({available_count}/{total_count})'
                 ),
-                html.Span(className = 'expand-collapse-icon', children='+')
+                html.Span(className='expand-collapse-icon', children='+')
             ]
         ),
         html.Div(className='accordion-element-content', children = [
