@@ -17,5 +17,5 @@ USER appuser
 # Expose port for web app
 EXPOSE 8050
 
-# Default command to run cron job
-CMD ["python", "cron.py"]
+# Default command to run the web app with Gunicorn
+CMD ["gunicorn", "--bind", "0.0.0.0:8050", "--workers", "4", "app:server"]

@@ -256,6 +256,10 @@ Die einfachste Methode ist die Verwendung von Docker Compose:
 docker-compose up -d
 ```
 
+### Gunicorn Web Server
+
+Die Webanwendung wird nun standardmäßig mit Gunicorn betrieben, einem produktionsreifen WSGI-Server. Die Docker-Konfiguration startet automatisch den Gunicorn-Server mit 4 Worker-Prozessen.
+
 ### Environment Variables
 
 Für die Konfiguration im Docker-Betrieb sollten Umgebungsvariablen verwendet werden:
@@ -270,7 +274,7 @@ Für die Konfiguration im Docker-Betrieb sollten Umgebungsvariablen verwendet we
 Folgende Volumes sollten gemountet werden um Datenpersistenz zu gewährleisten:
 
 - `/app/data.hdf5`: Die Datenbankdatei
-- `/app/myconfig.py`: Die Konfigurationsdatei
+- `/app/config.yaml`: Die Konfigurationsdatei
 - `/app/notifications.json`: Die Benachrichtigungskonfiguration
 - `/app/.env`: Die Umgebungsvariablendatei
 

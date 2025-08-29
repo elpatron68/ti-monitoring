@@ -1,44 +1,47 @@
 # Changelog
 
+All notable changes to this project will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
 ## [Unreleased]
 
-### Added
-- Configuration of header logo and title via config.yaml
-- Full-width header implementation
-- Web-based notification settings page with password protection
-- Environment variable support for configuration via .env file
-- Profile management interface (create, edit, delete notification profiles)
-- Form validation for Apprise URLs and configuration items
-
 ### Changed
-- Improved configuration management with fallback to myconfig.py
-- Enhanced header styling to span full width of page
+- Updated Dockerfile to use Gunicorn as the web server instead of Flask development server
+- Added Gunicorn to requirements.txt
+- Created docker-compose.yml for easier deployment
+- Updated README.md with Gunicorn deployment information
+
+## [1.2.1] - 2024-05-21
 
 ### Fixed
-- Issue with delete confirmation popup appearing on page load in notification settings
-- Configuration loading to properly prioritize config.yaml over myconfig.py
+- Resolved issue with confirmation dialog appearing incorrectly when loading notification settings page
 
-## [1.1.0] - 2025-08-29
+## [1.2.0] - 2024-05-20
 
 ### Added
-- Apprise notification system replacing email-only notifications
-- Support for 90+ notification services (Telegram, Slack, Discord, etc.)
-- Backward compatibility with existing email configurations
-- Docker support for easier deployment
-- requirements.txt file for dependency management
+- Web-based interface for managing notification settings
+- Password protection for notification settings page
+- Support for environment variables via .env file
+- Docker deployment support with Dockerfile and docker-compose.yml
 
 ### Changed
-- Updated notification configuration structure to use Apprise URLs
-- Enhanced error handling and retry mechanisms
-- Improved notification delivery reliability
+- Updated notification system to use Apprise library for supporting 90+ notification services
+- Improved configuration management with YAML support
+- Enhanced documentation with detailed setup instructions
 
-### Deprecated
-- Direct SMTP configuration (still supported for backward compatibility)
+## [1.1.0] - 2024-05-15
 
-## [1.0.0] - 2024-XX-XX
+### Added
+- Support for Apprise notification library (90+ services)
+- Backward compatibility with existing email configuration
+- Enhanced notification profiles with blacklist/whitelist support
+
+## [1.0.0] - 2024-05-10
 
 ### Added
 - Initial release of TI-Monitoring
-- Data fetching and archiving functionality
+- Core functionality for fetching and archiving TI component availability
 - Email notification system
-- Web application dashboard
+- Web application for displaying component status and statistics

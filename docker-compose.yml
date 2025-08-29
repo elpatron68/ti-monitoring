@@ -1,32 +1,25 @@
 version: '3.8'
 
 services:
-  ti-monitoring:
-    build: .
-    container_name: ti-monitoring
-    volumes:
-      - ./data.hdf5:/app/data.hdf5
-      - ./myconfig.py:/app/myconfig.py
-      - ./notifications.json:/app/notifications.json
-    environment:
-      - NOTIFICATIONS_ENABLED=true
-    networks:
-      - ti-monitoring-network
-
   ti-monitoring-web:
     build: .
-    container_name: ti-monitoring-web
     ports:
       - "8050:8050"
     volumes:
       - ./data.hdf5:/app/data.hdf5
-      - ./myconfig.py:/app/myconfig.py
-    command: ["python", "app.py"]
-    networks:
-      - ti-monitoring-network
-    depends_on:
-      - ti-monitoring
+      - ./config.yaml:/app/config.yaml
+      - ./notifications.json:/app/notifications.json
+    environment:
+      - PYTHONPATH=/app
+    restart: unless-stopped
 
-networks:
-  ti-monitoring-network:
-    driver: bridge
+  ti-monitoring-cron:
+    build: .
+    volumes:
+      - ./data.hdf5:/app/data.hdf5
+      - ./config.yaml:/app/config.yaml
+      - ./notifications.json:/app/notifications.json
+    environment:
+      - PYTHONPATH=/app
+    command: python cron.py
+    restart: unless-stopped
