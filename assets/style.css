@@ -16,7 +16,7 @@ main, header, #footer {
     padding: 5px 20px;
 }
 main {
-    margin-top: 90px
+    margin-top: 120px; /* Increased to ensure main content is below header */
 }
 header {
     display: flex;
@@ -25,6 +25,7 @@ header {
     z-index: 1;
     align-items: center;
     box-shadow: 0 2px 4px rgba(0,0,0,0.1); /* Subtle shadow for depth */
+    height: 100px; /* Explicit height to ensure proper spacing */
 }
 #logo-wrapper {
     display: flex;
