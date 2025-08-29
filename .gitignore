@@ -6,4 +6,4 @@ data.hdf5
 .qoder/
 .idea/
 .gitignore
-</import>
+.env

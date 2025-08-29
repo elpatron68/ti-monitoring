@@ -23,12 +23,32 @@ header {
     position: fixed;
     background-color: white;
     z-index: 1;
+    align-items: center;
 }
 #logo-wrapper {
     display: flex;
     flex-direction: column;
     justify-content: center;
     margin: 0px 40px 0px 0px;
+}
+
+.navigation {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+}
+
+.navigation a {
+    margin-left: 20px;
+    text-decoration: none;
+    color: #333;
+    font-weight: bold;
+    padding: 5px 10px;
+    border-radius: 4px;
+}
+
+.navigation a:hover {
+    background-color: #f0f0f0;
 }
 #logo {
     cursor: pointer;

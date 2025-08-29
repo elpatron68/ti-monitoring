@@ -14,7 +14,12 @@ def serve_layout():
                     html.Img(id='logo', src='assets/logo.svg')
                 ])
             ]),
-            html.H1(children='TI-Monitoring')
+            html.H1(children='TI-Monitoring'),
+            # Add navigation links
+            html.Nav(children=[
+                html.A('Home', href='/'),
+                html.A('Notification Settings', href='/notifications')
+            ], className='navigation')
         ]),
 		html.Main(children = [
 			html.Div(id='page-container', children=[

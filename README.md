@@ -33,6 +33,7 @@ Die requirements.txt Datei enthält alle notwendigen Abhängigkeiten, darunter:
 - pytz, tzlocal für Zeitzone-Handling
 - dash, plotly für die Webanwendung
 - apprise für Benachrichtigungen
+- python-dotenv für Umgebungsvariablen-Management
 - matplotlib für Beispiele und Entwicklung
 
 ## Einrichtung der Python-Umgebung
@@ -101,8 +102,27 @@ In der Datei `notifications.json` können mehrere Profile definiert werden. Ein 
 
 Die neue Konfigurationsstruktur ist abwärtskompatibel - bestehende E-Mail-Konfigurationen mit dem Feld `recipients` funktionieren weiterhin.
 
-Hier ein Beispiel für eine Benachrichtigung:
-![Benachrichtigung über Störung (Beispiel)](docs/img/Mail%20Beispiel%20Störung.png "Benachrichtigung über Störung (Beispiel)")
+### Web-Oberfläche für Benachrichtigungseinstellungen
+
+Ab Version 1.2.0 steht eine webbasierte Oberfläche zur Verwaltung der Benachrichtigungseinstellungen zur Verfügung. Über die Seite "Notification Settings" in der Web-App können Benachrichtigungsprofile erstellt, bearbeitet und gelöscht werden.
+
+Die Seite ist durch ein einfaches Passwortschutzsystem gesichert. Das Passwort wird über eine Umgebungsvariable `NOTIFICATION_SETTINGS_PASSWORD` konfiguriert, die in einer `.env` Datei im Projektverzeichnis gespeichert wird.
+
+Um den Passwortschutz zu konfigurieren:
+
+1. Kopieren Sie die Datei `.env.example` in `.env`:
+   ```bash
+   cp .env.example .env
+   ```
+
+2. Bearbeiten Sie die `.env` Datei und setzen Sie ein sicheres Passwort:
+   ```bash
+   NOTIFICATION_SETTINGS_PASSWORD=IhrSicheresPasswortHier
+   ```
+
+3. Stellen Sie sicher, dass die `.env` Datei nicht in das Git-Repository eingeschlossen wird (bereits in `.gitignore` enthalten).
+
+Nach der Konfiguration können Sie über den Navigationslink "Notification Settings" auf die Einstellungsseite zugreifen und sich mit dem konfigurierten Passwort anmelden.
 
 ## Docker Deployment
 
@@ -121,6 +141,7 @@ docker-compose up -d
 Für die Konfiguration im Docker-Betrieb sollten Umgebungsvariablen verwendet werden:
 
 - `NOTIFICATIONS_ENABLED`: Aktiviert/Deaktiviert Benachrichtigungen
+- `NOTIFICATION_SETTINGS_PASSWORD`: Passwort für die Benachrichtigungseinstellungen
 - `TI_API_URL`: URL der gematik API
 - `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`: Für SMTP-Konfiguration (wenn verwendet)
 
@@ -131,6 +152,7 @@ Folgende Volumes sollten gemountet werden um Datenpersistenz zu gewährleisten:
 - `/app/data.hdf5`: Die Datenbankdatei
 - `/app/myconfig.py`: Die Konfigurationsdatei
 - `/app/notifications.json`: Die Benachrichtigungskonfiguration
+- `/app/.env`: Die Umgebungsvariablendatei
 
 ## Web-App
 Der aktuelle Status verschiedener Komponenten kann optional auch in Form einer Web-App auf Basis des [Dash-Frameworks](https://dash.plotly.com) bereitgestellt werden. Die App kann z.B. in Kombination mit uWSGi und nginx (ähnlich [wie hier beschrieben](https://carpiero.medium.com/host-a-dashboard-using-python-dash-and-linux-in-your-own-linux-server-85d891e960bc) veröffentlicht werden.

@@ -10,6 +10,11 @@ from email.message import EmailMessage
 from email.mime.text import MIMEText
 import apprise
 
+# Add dotenv import
+import os
+from dotenv import load_dotenv
+import hmac
+
 def initialize_data_file(file_name):
     """
     Creates hdf5 file if necessary and builds up basic group structure
@@ -354,6 +359,116 @@ def send_notifications(file_name, notifications_config_file, smtp_settings, home
         except:
             print('Sending notification for profile failed. Please check notifications config file.')
             pass
+
+def load_env_file():
+    """
+    Load environment variables from .env file
+    
+    Returns:
+        bool: True if .env file was loaded, False otherwise
+    """
+    return load_dotenv()
+
+def validate_password(provided_password):
+    """
+    Validate provided password against environment variable using time-constant comparison
+    
+    Args:
+        provided_password (str): Password provided by user
+        
+    Returns:
+        bool: True if password is valid, False otherwise
+    """
+    load_env_file()  # Ensure environment variables are loaded
+    expected_password = os.getenv('NOTIFICATION_SETTINGS_PASSWORD')
+    
+    if expected_password is None:
+        return False
+    
+    # Use time-constant comparison to prevent timing attacks
+    return hmac.compare_digest(provided_password, expected_password)
+
+def get_notification_config(file_path):
+    """
+    Read and parse notification configuration
+    
+    Args:
+        file_path (str): Path to notifications.json file
+        
+    Returns:
+        list: List of notification configurations
+    """
+    try:
+        with open(file_path, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except FileNotFoundError:
+        # Return empty list if file doesn't exist
+        return []
+    except json.JSONDecodeError:
+        # Return empty list if file is invalid
+        return []
+
+def save_notification_config(file_path, config):
+    """
+    Validate and save notification configuration
+    
+    Args:
+        file_path (str): Path to notifications.json file
+        config (list): List of notification configurations
+        
+    Returns:
+        bool: True if saved successfully, False otherwise
+    """
+    try:
+        # Validate configuration structure
+        if not isinstance(config, list):
+            return False
+            
+        for profile in config:
+            if not isinstance(profile, dict):
+                return False
+                
+            # Check required fields
+            if 'name' not in profile or 'apprise_urls' not in profile or 'ci_list' not in profile or 'type' not in profile:
+                return False
+                
+            # Validate type field
+            if profile['type'] not in ['whitelist', 'blacklist']:
+                return False
+                
+            # Validate apprise_urls is a list
+            if not isinstance(profile['apprise_urls'], list):
+                return False
+                
+            # Validate ci_list is a list
+            if not isinstance(profile['ci_list'], list):
+                return False
+        
+        # Save configuration
+        with open(file_path, 'w', encoding='utf-8') as f:
+            json.dump(config, f, indent=2, ensure_ascii=False)
+        return True
+    except Exception:
+        return False
+
+def validate_apprise_urls(urls):
+    """
+    Validate Apprise URL format
+    
+    Args:
+        urls (list): List of Apprise URLs
+        
+    Returns:
+        bool: True if all URLs are valid, False otherwise
+    """
+    try:
+        apobj = apprise.Apprise()
+        for url in urls:
+            if not apobj.add(url):
+                return False
+        return True
+    except Exception:
+        return False
 
 def main():
     return

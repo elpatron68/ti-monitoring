@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+### Added
+- Web-based notification settings page with password protection
+- Environment variable support for configuration via .env file
+- Profile management interface (create, edit, delete notification profiles)
+- Form validation for Apprise URLs and configuration items
+
 ## [1.1.0] - 2025-08-29
 
 ### Added
