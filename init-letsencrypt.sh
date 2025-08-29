@@ -13,11 +13,11 @@ if [ -z "$SSL_DOMAIN" ] || [ -z "$SSL_EMAIL" ]; then
   exit 1
 fi
 
-echo "### Creating dummy certificate directory for $SSL_DOMAIN ..."
-mkdir -p /home/markus/ti-monitoring/nginx/certbot-www/.well-known/acme-challenge/
-mkdir -p /home/markus/ti-monitoring/nginx/certbot-conf/live/$SSL_DOMAIN/
-
 echo "### Creating dummy certificate for $SSL_DOMAIN ..."
+# Create the directory structure for the certificate
+docker compose run --rm --entrypoint "\
+  mkdir -p /etc/letsencrypt/live/$SSL_DOMAIN" certbot
+
 docker compose run --rm --entrypoint "\
   openssl req -x509 -nodes -newkey rsa:4096 -days 1\
     -keyout '/etc/letsencrypt/live/$SSL_DOMAIN/privkey.pem' \
