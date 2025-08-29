@@ -4,28 +4,81 @@ from mylibrary import *
 from myconfig import *
 import yaml
 import os
+import functools
+import time
+
+# Configuration cache for home page
+_home_config_cache = {}
+_home_config_cache_timestamp = 0
+_home_config_cache_ttl = 300  # 5 seconds cache TTL
 
 def load_config():
-    """Load configuration from YAML file"""
-    config_path = os.path.join(os.path.dirname(__file__), '..', 'config.yaml')
-    try:
-        with open(config_path, 'r', encoding='utf-8') as f:
-            config = yaml.safe_load(f)
-        return config
-    except FileNotFoundError:
-        return {}
-    except Exception:
-        return {}
+    """Load configuration from YAML file with caching"""
+    global _home_config_cache, _home_config_cache_timestamp
+    
+    current_time = time.time()
+    if (not _home_config_cache or 
+        current_time - _home_config_cache_timestamp > _home_config_cache_ttl):
+        
+        config_path = os.path.join(os.path.dirname(__file__), '..', 'config.yaml')
+        try:
+            with open(config_path, 'r', encoding='utf-8') as f:
+                _home_config_cache = yaml.safe_load(f) or {}
+            _home_config_cache_timestamp = current_time
+        except (FileNotFoundError, Exception):
+            _home_config_cache = {}
+            _home_config_cache_timestamp = current_time
+    
+    return _home_config_cache
 
 def load_core_config():
-    """Load core configuration from YAML file"""
+    """Load core configuration from cached config"""
     config = load_config()
     return config.get('core', {})
 
 dash.register_page(__name__, path='/')
 
+@functools.lru_cache(maxsize=32)
+def create_accordion_element(group_name, group_data):
+    """Create accordion element with caching for repeated groups"""
+    return html.Div(className='accordion-element', children = [
+        html.Div(
+            className='accordion-element-title',
+            children = [
+                html.Span(
+                    className='availability-icon ' + (
+                        'available' if sum(group_data['current_availability']) == len(group_data)
+                        else 'unavailable' if sum(group_data['current_availability']) == 0
+                        else 'impaired'
+                    ),
+                ),
+                html.Span(
+                    className = 'group-name',
+                    children = group_name + ' (' + str(sum(group_data['current_availability'] == 1)) + '/' + str(len(group_data)) + ')'
+                ),
+                html.Span(className = 'expand-collapse-icon', children='+')
+            ]
+        ),
+        html.Div(className='accordion-element-content', children = [
+            html.Ul(children = [
+                html.Li([
+                    html.Span(
+                        className='availability-icon ' + (
+                            'available' if row['current_availability'] == 1 
+                            else 'unavailable'
+                        )
+                    ),
+                    html.Div([
+                        html.A(str(row['ci']), href='/plot?ci=' + str(row['ci'])),
+                        ': ' + row['name'] + ', ' + row['organization'] + ', ' + pretty_timestamp(row['time'])
+                    ])
+                ]) for _, row in group_data.iterrows()
+            ])
+        ])
+    ])
+
 def serve_layout():
-    # Load core configurations
+    # Load core configurations (now cached)
     core_config = load_core_config()
     
     # Get file_name from YAML as primary source, fallback to myconfig.py
@@ -82,52 +135,19 @@ def serve_layout():
         ])
         return layout
     
+    # Optimize DataFrame operations
     grouped = cis.groupby('product')
-    products = []
-    for index, row in cis.iterrows():
-        product = row['product']
-        if product not in products:
-            products.append(product)
+    
+    # Create accordion elements efficiently
+    accordion_elements = []
+    for group_name, group_data in grouped:
+        accordion_elements.append(create_accordion_element(group_name, group_data))
+    
     layout = html.Div([
         html.P('Hier finden Sie eine nach Produkten gruppierte Übersicht sämtlicher TI-Komponenten. Neue Daten werden alle 5 Minuten bereitgestellt. Laden Sie die Seite neu, um die Ansicht zu aktualisieren.'),
-        html.Div(className='accordion', children = [
-            html.Div(className='accordion-element', children = [
-                html.Div(
-                    className='accordion-element-title',
-                    children = [
-                        html.Span(
-                            className='availability-icon ' + (
-                                'available' if sum(group['current_availability']) == len(group)
-                                else 'unavailable' if sum(group['current_availability']) == 0
-                                else 'impaired'
-                            ),
-                        ),
-                        html.Span(
-                            className = 'group-name',
-                            children = group_name + ' (' + str(sum(group['current_availability'] == 1)) + '/' + str(len(group)) + ')'
-                        ),
-                        html.Span(className = 'expand-collapse-icon', children='+')
-                    ]
-                ),
-                html.Div(className='accordion-element-content', children = [
-                    html.Ul(children = [
-                        html.Li([
-                            html.Span(
-                                className='availability-icon ' + (
-                                    'available' if row['current_availability'] == 1 
-                                    else 'unavailable'
-                                )
-                            ),
-                            html.Div([
-                                html.A(str(row['ci']), href='/plot?ci=' + str(row['ci'])),
-                                ': ' + row['name'] + ', ' + row['organization'] + ', ' + pretty_timestamp(row['time'])
-                            ])
-                        ]) for _, row in group.iterrows()
-                    ])
-                ])
-            ]) for group_name, group in grouped
-        ])
+        html.Div(className='accordion', children=accordion_elements)
     ])
+    
     return layout
 
 layout = serve_layout

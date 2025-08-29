@@ -46,7 +46,7 @@ def initialize_data_file(file_name):
 
 def update_file(file_name, url):
     """
-    Gets current data from API and updates hdf5 file
+    Gets current data from API and updates hdf5 file with optimized performance
 
     Args:
         file_name (str): Path to hdf5 file
@@ -55,36 +55,63 @@ def update_file(file_name, url):
     Returns:
         None
     """
-    data = json.loads(requests.get(url).text)
-    df = pd.DataFrame(data)
-    with h5.File(file_name, "a") as f:
-        for idx in range(len(df)):
-            ci = df.iloc[idx]
-            # availybility
-            group_av = f.require_group("availability/" + str(ci["ci"]))
-            av = int(ci["availability"])
-            utc_time = datetime.strptime(ci["time"], '%Y-%m-%dT%H:%M:%S.%fZ').replace(tzinfo=pytz.UTC)
-            timestamp = utc_time.timestamp()
-            ds = group_av.require_dataset(str(timestamp),shape=(),dtype=int)
-            ds[()] = av
-            # configuration items
-            group_ci = f.require_group("configuration_items/" + str(ci["ci"]))
+    try:
+        # Get data from API
+        response = requests.get(url, timeout=30)  # Add timeout
+        response.raise_for_status()  # Raise exception for bad status codes
+        data = json.loads(response.text)
+        df = pd.DataFrame(data)
+        
+        # Batch process data for better performance
+        with h5.File(file_name, "a") as f:
+            # Pre-define data types
             str_256 = h5.string_dtype(encoding='utf-8', length=256)
-            for property in ["tid", "bu", "organization", "pdt", "product", "name", "comment", "time"]:
-                ds = group_ci.require_dataset(property, shape=(), dtype=str_256)
-                ds[()] = ci[property]
-            if "current_availability" in group_ci:
-                prev_av = group_ci["current_availability"][()]
-                av_diff = av - prev_av
-            else:
-                av_diff = 0
-            ds = group_ci.require_dataset("availability_difference",shape=(),dtype=int)
-            ds[()] = av_diff
-            ds = group_ci.require_dataset("current_availability",shape=(),dtype=int)
-            ds[()] = av
-    
-    # Clear cache after updating file to ensure fresh data
-    clear_hdf5_cache()
+            
+            # Process all configuration items in batch
+            for idx in range(len(df)):
+                ci = df.iloc[idx]
+                ci_id = str(ci["ci"])
+                
+                # Availability data
+                group_av = f.require_group("availability/" + ci_id)
+                av = int(ci["availability"])
+                utc_time = datetime.strptime(ci["time"], '%Y-%m-%dT%H:%M:%S.%fZ').replace(tzinfo=pytz.UTC)
+                timestamp = utc_time.timestamp()
+                
+                # Create dataset efficiently
+                ds = group_av.require_dataset(str(timestamp), shape=(), dtype=int)
+                ds[()] = av
+                
+                # Configuration items
+                group_ci = f.require_group("configuration_items/" + ci_id)
+                
+                # Batch create all properties
+                properties = ["tid", "bu", "organization", "pdt", "product", "name", "comment", "time"]
+                for property_name in properties:
+                    if property_name in ci:
+                        ds = group_ci.require_dataset(property_name, shape=(), dtype=str_256)
+                        ds[()] = str(ci[property_name])
+                
+                # Calculate availability difference
+                if "current_availability" in group_ci:
+                    prev_av = group_ci["current_availability"][()]
+                    av_diff = av - prev_av
+                else:
+                    av_diff = 0
+                
+                # Set availability data
+                group_ci.require_dataset("availability_difference", shape=(), dtype=int)[()] = av_diff
+                group_ci.require_dataset("current_availability", shape=(), dtype=int)[()] = av
+        
+        # Clear cache after updating file to ensure fresh data
+        clear_hdf5_cache()
+        
+    except requests.RequestException as e:
+        print(f"Error fetching data from API: {e}")
+        raise
+    except Exception as e:
+        print(f"Error updating HDF5 file: {e}")
+        raise
 
 def get_availability_data_of_ci(file_name, ci):
     """
