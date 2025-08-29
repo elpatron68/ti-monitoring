@@ -6,6 +6,11 @@ from myconfig import *
 app = Dash(__name__, use_pages=True, title='TI-Monitoring')
 server = app.server
 
+# Add external CSS for Material Icons
+app.config.external_stylesheets = [
+    'https://fonts.googleapis.com/icon?family=Material+Icons'
+]
+
 def serve_layout():
     layout = html.Div([
         html.Header(children = [
@@ -15,10 +20,10 @@ def serve_layout():
                 ])
             ]),
             html.H1(children='TI-Monitoring'),
-            # Add navigation links
+            # Add navigation links with Material icons
             html.Nav(children=[
-                html.A('Home', href='/'),
-                html.A('Notification Settings', href='/notifications')
+                html.A(html.I(className='material-icons', children='home'), href='/', className='nav-icon'),
+                html.A(html.I(className='material-icons', children='settings'), href='/notifications', className='nav-icon')
             ], className='navigation')
         ]),
 		html.Main(children = [
