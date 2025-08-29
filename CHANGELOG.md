@@ -10,7 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Nginx reverse proxy with Let's Encrypt SSL certificate support
 - Automated SSL certificate renewal with Certbot
-- Configuration options for SSL domain and email in config.yaml
+- Configuration options for SSL domain and email via .env file
 - init-letsencrypt.sh script for initial certificate setup
 
 ### Changed

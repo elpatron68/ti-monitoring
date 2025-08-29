@@ -4,17 +4,11 @@ if [ -f .env ]; then
   export $(cat .env | xargs)
 fi
 
-if [ -f config.yaml ]; then
-  # Extract domain and email from config.yaml using Python
-  export SSL_DOMAIN=$(python3 -c "import yaml; f=open('config.yaml'); c=yaml.safe_load(f); print(c.get('core', {}).get('ssl', {}).get('domain', ''))")
-  export SSL_EMAIL=$(python3 -c "import yaml; f=open('config.yaml'); c=yaml.safe_load(f); print(c.get('core', {}).get('ssl', {}).get('email', ''))")
-fi
-
 echo "Using domain: $SSL_DOMAIN"
 echo "Using email: $SSL_EMAIL"
 
 if [ -z "$SSL_DOMAIN" ] || [ -z "$SSL_EMAIL" ]; then
-  echo "SSL_DOMAIN or SSL_EMAIL not set. Please check your config.yaml or .env file."
+  echo "SSL_DOMAIN or SSL_EMAIL not set. Please check your .env file."
   exit 1
 fi
 

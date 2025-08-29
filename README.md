@@ -262,14 +262,11 @@ Die Webanwendung wird nun standardmäßig mit Gunicorn betrieben, einem produkti
 
 ### Nginx Reverse Proxy with Let's Encrypt
 
-Das Projekt enthält nun auch eine nginx-Konfiguration mit Let's Encrypt-Unterstützung für automatische HTTPS-Zertifikate. Die Konfiguration erfolgt über die `config.yaml`:
+Das Projekt enthält nun auch eine nginx-Konfiguration mit Let's Encrypt-Unterstützung für automatische HTTPS-Zertifikate. Die Konfiguration erfolgt über die `.env` Datei:
 
-```yaml
-core:
-  ssl:
-    domain: "ti-monitoring.example.com"
-    email: "admin@example.com"
-    enabled: true
+```env
+SSL_DOMAIN=ti-monitoring.example.com
+SSL_EMAIL=admin@example.com
 ```
 
 Nach dem Starten der Container mit `docker-compose up -d` muss das init-letsencrypt.sh Skript ausgeführt werden, um die ersten Zertifikate zu erhalten:
@@ -278,7 +275,7 @@ Nach dem Starten der Container mit `docker-compose up -d` muss das init-letsencr
 ./init-letsencrypt.sh
 ```
 
-Das Skript liest die Domain und E-Mail aus der `config.yaml` und fordert automatisch ein Zertifikat von Let's Encrypt an.
+Das Skript liest die Domain und E-Mail aus der `.env` Datei und fordert automatisch ein Zertifikat von Let's Encrypt an.
 
 ### Environment Variables
 
