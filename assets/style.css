@@ -16,9 +16,7 @@ main, #footer {
     width: calc(100vw - 40px);
     padding: 5px 20px;
 }
-main {
-    /* Remove margin-top since we're using body padding instead */
-}
+
 header {
     display: flex;
     position: fixed;
