@@ -1,0 +1,25 @@
+# Footer configuration
+footer:
+  home:
+    label: "Home"
+    link: "https://lukas-schmidt-russnak.de"
+    enabled: true
+    new_tab: true
+  documentation:
+    label: "Dokumentation"
+    link: "https://github.com/lsr-dev/ti-monitoring"
+    enabled: true
+    new_tab: true
+  privacy:
+    label: "Datenschutz"
+    link: "https://lukas-schmidt-russnak.de/datenschutz/"
+    enabled: true
+    new_tab: true
+  imprint:
+    label: "Impressum"
+    link: "https://lukas-schmidt-russnak.de/impressum/"
+    enabled: true
+    new_tab: true
+  copyright:
+    text: "© Lukas Schmidt-Russnak"
+    enabled: true
