@@ -4,6 +4,8 @@ import yaml
 import os
 import functools
 import time
+from flask import jsonify
+import psutil
 
 app = Dash(__name__, use_pages=True, title='TI-Monitoring')
 server = app.server
@@ -165,6 +167,83 @@ def serve_layout():
     return _layout_cache
 
 app.layout = serve_layout
+
+# Health check endpoint
+@server.route('/health')
+def health_check():
+    """Health check endpoint for monitoring the application status"""
+    try:
+        # Check configuration loading
+        config_status = "healthy"
+        config_error = None
+        try:
+            config = load_config()
+            if not config:
+                config_status = "warning"
+                config_error = "Empty configuration"
+        except Exception as e:
+            config_status = "unhealthy"
+            config_error = str(e)
+        
+        # Check layout generation
+        layout_status = "healthy"
+        layout_error = None
+        try:
+            layout = serve_layout()
+            if not layout:
+                layout_status = "warning"
+                layout_error = "Empty layout"
+        except Exception as e:
+            layout_status = "unhealthy"
+            layout_error = str(e)
+        
+        # System metrics
+        cpu_percent = psutil.cpu_percent(interval=1)
+        memory = psutil.virtual_memory()
+        
+        # Overall health status
+        overall_status = "healthy"
+        if config_status == "unhealthy" or layout_status == "unhealthy":
+            overall_status = "unhealthy"
+        elif config_status == "warning" or layout_status == "warning":
+            overall_status = "warning"
+        
+        health_data = {
+            "status": overall_status,
+            "timestamp": time.time(),
+            "uptime": time.time() - _config_cache_timestamp if _config_cache_timestamp > 0 else 0,
+            "components": {
+                "configuration": {
+                    "status": config_status,
+                    "error": config_error,
+                    "cache_age": time.time() - _config_cache_timestamp if _config_cache_timestamp > 0 else None,
+                    "cache_ttl": _config_cache_ttl
+                },
+                "layout": {
+                    "status": layout_status,
+                    "error": layout_error,
+                    "cache_age": time.time() - _layout_cache_timestamp if _layout_cache_timestamp > 0 else None,
+                    "cache_ttl": _layout_cache_ttl
+                }
+            },
+            "system": {
+                "cpu_percent": cpu_percent,
+                "memory_percent": memory.percent,
+                "memory_available": memory.available,
+                "memory_total": memory.total
+            }
+        }
+        
+        status_code = 200 if overall_status == "healthy" else (503 if overall_status == "unhealthy" else 200)
+        return jsonify(health_data), status_code
+        
+    except Exception as e:
+        error_data = {
+            "status": "unhealthy",
+            "timestamp": time.time(),
+            "error": f"Health check failed: {str(e)}"
+        }
+        return jsonify(error_data), 503
 
 if __name__ == '__main__':
     app.run(debug=False)
