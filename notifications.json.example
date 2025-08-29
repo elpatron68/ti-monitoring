@@ -1,0 +1,25 @@
+[
+  {
+    "name": "Team Infrastructure",
+    "type": "whitelist",
+    "ci_list": [
+      "CI001",
+      "CI002",
+      "CI003"
+    ],
+    "apprise_urls": [
+      "mmost://<your-mattermost-server>/<channel>/<token>"
+    ]
+  },
+  {
+    "name": "Management",
+    "apprise_urls": [
+      "mailto://user:pass@company.com?to=management@company.com"
+    ],
+    "ci_list": [
+      "CI004",
+      "CI005"
+    ],
+    "type": "whitelist"
+  }
+]

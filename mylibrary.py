@@ -9,11 +9,25 @@ import smtplib
 from email.message import EmailMessage
 from email.mime.text import MIMEText
 import apprise
+import threading
 
 # Add dotenv import
 import os
 from dotenv import load_dotenv
 import hmac
+
+# Global cache for HDF5 data
+_hdf5_cache = {}
+_cache_lock = threading.Lock()
+_cache_timestamp = None
+_cache_ttl = 300  # 5 minutes cache TTL
+
+def clear_hdf5_cache():
+    """Clear the HDF5 cache to force fresh data reading"""
+    global _hdf5_cache, _cache_timestamp
+    with _cache_lock:
+        _hdf5_cache.clear()
+        _cache_timestamp = None
 
 def initialize_data_file(file_name):
     """
@@ -68,6 +82,9 @@ def update_file(file_name, url):
             ds[()] = av_diff
             ds = group_ci.require_dataset("current_availability",shape=(),dtype=int)
             ds[()] = av
+    
+    # Clear cache after updating file to ensure fresh data
+    clear_hdf5_cache()
 
 def get_availability_data_of_ci(file_name, ci):
     """
@@ -80,20 +97,24 @@ def get_availability_data_of_ci(file_name, ci):
     Returns:
         DataFrame: Time series of the availability of the desired configuration item
     """
-    all_ci_data = []
-    with h5.File(file_name, 'r') as f:
-        group = f["availability/" + ci]
-        ci_data = {}
-        times = []
-        values = []
-        for name, dataset in group.items():
-            if isinstance(dataset, h5.Dataset):
-                time = pd.to_datetime(float(name), unit='s').tz_localize('UTC').tz_convert('Europe/Berlin')
-                times.append(time)
-                values.append(int(dataset[()]))
-        ci_data["times"] = np.array(times)
-        ci_data["values"] = np.array(values)
-        return pd.DataFrame(ci_data)
+    try:
+        # Use SWMR mode to allow multiple readers
+        with h5.File(file_name, 'r', swmr=True) as f:
+            group = f["availability/" + ci]
+            ci_data = {}
+            times = []
+            values = []
+            for name, dataset in group.items():
+                if isinstance(dataset, h5.Dataset):
+                    time = pd.to_datetime(float(name), unit='s').tz_localize('UTC').tz_convert('Europe/Berlin')
+                    times.append(time)
+                    values.append(int(dataset[()]))
+            ci_data["times"] = np.array(times)
+            ci_data["values"] = np.array(values)
+            return pd.DataFrame(ci_data)
+    except Exception as e:
+        print(f"Error reading availability data for CI {ci} from HDF5 file {file_name}: {e}")
+        return pd.DataFrame()
 
 def get_data_of_all_cis(file_name):
     """
@@ -106,24 +127,53 @@ def get_data_of_all_cis(file_name):
     Returns:
         DataFrame: Basic information about all configuration items
     """
+    global _hdf5_cache, _cache_timestamp
+    
+    # Check cache first
+    current_time = time.time()
+    with _cache_lock:
+        if (file_name in _hdf5_cache and 
+            _cache_timestamp and 
+            current_time - _cache_timestamp < _cache_ttl):
+            return _hdf5_cache[file_name].copy()
+    
+    # If not in cache or expired, read from file
     all_ci_data = []
-    with h5.File(file_name, 'r') as f:
-        group = f["configuration_items"]
-        cis = group.keys()
-        for ci in cis:
-            group = f["configuration_items/"+ci]
-            ci_data = {}
-            ci_data["ci"] = ci
-            for name in group:
-                dataset = group[name]
-                value = dataset[()]
-                # Handle scalar bytes (decode)
-                if isinstance(value, bytes):
-                    value = value.decode('utf-8')
-                ci_data[name] = value
-            #df = pd.DataFrame(ci_data)
-            all_ci_data.append(ci_data)
-    return pd.DataFrame(all_ci_data)
+    try:
+        # Use SWMR mode to allow multiple readers
+        with h5.File(file_name, 'r', swmr=True) as f:
+            group = f["configuration_items"]
+            cis = group.keys()
+            for ci in cis:
+                group = f["configuration_items/"+ci]
+                ci_data = {}
+                ci_data["ci"] = ci
+                for name in group:
+                    dataset = group[name]
+                    value = dataset[()]
+                    # Handle scalar bytes (decode)
+                    if isinstance(value, bytes):
+                        value = value.decode('utf-8')
+                    ci_data[name] = value
+                all_ci_data.append(ci_data)
+        
+        # Update cache
+        result_df = pd.DataFrame(all_ci_data)
+        with _cache_lock:
+            _hdf5_cache[file_name] = result_df.copy()
+            _cache_timestamp = current_time
+        
+        return result_df
+        
+    except Exception as e:
+        print(f"Error reading HDF5 file {file_name}: {e}")
+        # Return cached data if available, even if expired
+        with _cache_lock:
+            if file_name in _hdf5_cache:
+                print(f"Returning cached data due to error")
+                return _hdf5_cache[file_name].copy()
+        # If no cache available, return empty DataFrame
+        return pd.DataFrame()
 
 def get_data_of_ci(file_name, ci):
     """
@@ -136,19 +186,23 @@ def get_data_of_ci(file_name, ci):
     Returns:
         DataFrame: General data of the desired configuration item
     """
-    all_ci_data = []
-    with h5.File(file_name, 'r') as f:
-        group = f["configuration_items/"+ci]
-        ci_data = {}
-        ci_data["ci"] = ci
-        for name in group:
-            dataset = group[name]
-            value = dataset[()]
-            # Handle scalar bytes (decode)
-            if isinstance(value, bytes):
-                value = value.decode('utf-8')
-            ci_data[name] = value
-    return pd.DataFrame([ci_data])
+    try:
+        # Use SWMR mode to allow multiple readers
+        with h5.File(file_name, 'r', swmr=True) as f:
+            group = f["configuration_items/"+ci]
+            ci_data = {}
+            ci_data["ci"] = ci
+            for name in group:
+                dataset = group[name]
+                value = dataset[()]
+                # Handle scalar bytes (decode)
+                if isinstance(value, bytes):
+                    value = value.decode('utf-8')
+                ci_data[name] = value
+        return pd.DataFrame([ci_data])
+    except Exception as e:
+        print(f"Error reading CI {ci} from HDF5 file {file_name}: {e}")
+        return pd.DataFrame()
 
 def pretty_timestamp(timestamp_str):
     """
