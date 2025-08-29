@@ -13,7 +13,7 @@ if [ -z "$SSL_DOMAIN" ] || [ -z "$SSL_EMAIL" ]; then
 fi
 
 echo "### Creating dummy certificate for $SSL_DOMAIN ..."
-docker-compose run --rm --entrypoint "\
+docker compose run --rm --entrypoint "\
   openssl req -x509 -nodes -newkey rsa:4096 -days 1\
     -keyout '/etc/letsencrypt/live/$SSL_DOMAIN/privkey.pem' \
     -out '/etc/letsencrypt/live/$SSL_DOMAIN/fullchain.pem' \
@@ -21,11 +21,11 @@ docker-compose run --rm --entrypoint "\
 echo
 
 echo "### Starting nginx ..."
-docker-compose up --force-recreate -d nginx
+docker compose up --force-recreate -d nginx
 echo
 
 echo "### Deleting dummy certificate for $SSL_DOMAIN ..."
-docker-compose run --rm --entrypoint "\
+docker compose run --rm --entrypoint "\
   rm -Rf /etc/letsencrypt/live/$SSL_DOMAIN && \
   rm -Rf /etc/letsencrypt/archive/$SSL_DOMAIN && \
   rm -Rf /etc/letsencrypt/renewal/$SSL_DOMAIN.conf" certbot
@@ -33,7 +33,7 @@ echo
 
 echo "### Requesting Let's Encrypt certificate for $SSL_DOMAIN ..."
 # Join $SSL_DOMAIN to -d args as part of certbot command
-docker-compose run --rm --entrypoint "\
+docker compose run --rm --entrypoint "\
   certbot certonly --webroot -w /var/www/certbot \
     --email $SSL_EMAIL \
     -d $SSL_DOMAIN \
@@ -43,4 +43,4 @@ docker-compose run --rm --entrypoint "\
 echo
 
 echo "### Reloading nginx ..."
-docker-compose exec nginx nginx -s reload
+docker compose exec nginx nginx -s reload
