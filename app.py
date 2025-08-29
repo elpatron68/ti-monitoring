@@ -13,31 +13,32 @@ app.config.external_stylesheets = [
     'https://fonts.googleapis.com/icon?family=Material+Icons'
 ]
 
-def load_footer_config():
-    """Load footer configuration from YAML file"""
+def load_config():
+    """Load configuration from YAML file"""
     config_path = os.path.join(os.path.dirname(__file__), 'config.yaml')
     try:
         with open(config_path, 'r', encoding='utf-8') as f:
             config = yaml.safe_load(f)
-        return config.get('footer', {})
+        return config
     except FileNotFoundError:
-        # Return default configuration if file doesn't exist
-        return {
-            'home': {'label': 'Home', 'link': 'https://lukas-schmidt-russnak.de', 'enabled': True, 'new_tab': True},
-            'documentation': {'label': 'Dokumentation', 'link': 'https://github.com/lsr-dev/ti-monitoring', 'enabled': True, 'new_tab': True},
-            'privacy': {'label': 'Datenschutz', 'link': 'https://lukas-schmidt-russnak.de/datenschutz/', 'enabled': True, 'new_tab': True},
-            'imprint': {'label': 'Impressum', 'link': 'https://lukas-schmidt-russnak.de/impressum/', 'enabled': True, 'new_tab': True},
-            'copyright': {'text': '© Lukas Schmidt-Russnak', 'enabled': True}
-        }
+        return {}
     except Exception:
-        # Return default configuration if there's any other error
-        return {
-            'home': {'label': 'Home', 'link': 'https://lukas-schmidt-russnak.de', 'enabled': True, 'new_tab': True},
-            'documentation': {'label': 'Dokumentation', 'link': 'https://github.com/lsr-dev/ti-monitoring', 'enabled': True, 'new_tab': True},
-            'privacy': {'label': 'Datenschutz', 'link': 'https://lukas-schmidt-russnak.de/datenschutz/', 'enabled': True, 'new_tab': True},
-            'imprint': {'label': 'Impressum', 'link': 'https://lukas-schmidt-russnak.de/impressum/', 'enabled': True, 'new_tab': True},
-            'copyright': {'text': '© Lukas Schmidt-Russnak', 'enabled': True}
-        }
+        return {}
+
+def load_footer_config():
+    """Load footer configuration from YAML file"""
+    config = load_config()
+    return config.get('footer', {})
+
+def load_core_config():
+    """Load core configuration from YAML file"""
+    config = load_config()
+    return config.get('core', {})
+
+def load_header_config():
+    """Load header configuration from YAML file"""
+    core_config = load_core_config()
+    return core_config.get('header', {})
 
 def create_footer_element(config_item):
     """Create a footer element based on configuration"""
@@ -55,8 +56,21 @@ def create_footer_element(config_item):
     return html.Div([html.A(config_item['label'], **link_attrs)])
 
 def serve_layout():
-    # Load footer configuration
+    # Load configurations
     footer_config = load_footer_config()
+    core_config = load_core_config()
+    header_config = load_header_config()
+    
+    # Get home_url from config.yaml as primary source, fallback to myconfig.py
+    app_home_url = core_config.get('home_url') or home_url
+    
+    # Get header configurations
+    header_title = header_config.get('title', 'TI-Monitoring')
+    logo_config = header_config.get('logo', {})
+    logo_path = logo_config.get('path', 'assets/logo.svg')
+    logo_alt = logo_config.get('alt', 'Logo')
+    logo_height = logo_config.get('height', 50)
+    logo_width = logo_config.get('width', 50)
     
     # Build footer elements
     footer_elements = []
@@ -94,11 +108,11 @@ def serve_layout():
     layout = html.Div([
         html.Header(children = [
             html.Div(id='logo-wrapper', children = [
-                html.A(href=home_url, children = [
-                    html.Img(id='logo', src='assets/logo.svg')
+                html.A(href=app_home_url, children = [
+                    html.Img(id='logo', src=logo_path, alt=logo_alt, height=logo_height, width=logo_width)
                 ])
             ]),
-            html.H1(children='TI-Monitoring'),
+            html.H1(children=header_title),
             # Add navigation links with Material icons
             html.Nav(children=[
                 html.A(html.I(className='material-icons', children='home'), href='/', className='nav-icon'),
@@ -116,7 +130,7 @@ def serve_layout():
             ]),
 			html.Div(className = 'box', children = [
                 html.H3('Disclaimer'),
-                html.Span('Die Bereitstellung der abgebildeten Informationen erfolgt ohne Gewähr. Als Grundlage dieren Daten der gematik GmbH, die sich über eine öffentlich erreichbare Schnittstelle abrufen lassen. Weitere Informationen dazu hier: '),
+                html.Span('Die Bereitstellung der abgebildeten Informationen erfolgt ohne Gewähr. Als Grundlage dienen Daten der gematik GmbH, die sich über eine öffentlich erreichbare Schnittstelle abrufen lassen. Weitere Informationen dazu hier: '),
                 html.A('https://github.com/gematik/api-tilage', href='https://github.com/gematik/api-tilage', target='_blank'),
                 html.Span('.')
             ]),

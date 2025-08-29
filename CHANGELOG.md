@@ -3,13 +3,20 @@
 ## [Unreleased]
 
 ### Added
+- Configuration of header logo and title via config.yaml
+- Full-width header implementation
 - Web-based notification settings page with password protection
 - Environment variable support for configuration via .env file
 - Profile management interface (create, edit, delete notification profiles)
 - Form validation for Apprise URLs and configuration items
 
+### Changed
+- Improved configuration management with fallback to myconfig.py
+- Enhanced header styling to span full width of page
+
 ### Fixed
 - Issue with delete confirmation popup appearing on page load in notification settings
+- Configuration loading to properly prioritize config.yaml over myconfig.py
 
 ## [1.1.0] - 2025-08-29
 

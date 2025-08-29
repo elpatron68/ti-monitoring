@@ -48,6 +48,124 @@ source /home/lukas/myenv/bin/activate
 pip install -r requirements.txt
 ```
 
+## Konfiguration
+
+Die Anwendung kann über mehrere Konfigurationsdateien konfiguriert werden:
+
+1. **config.yaml** - Hauptkonfigurationsdatei (empfohlen)
+2. **myconfig.py** - Python-basierte Konfiguration (Fallback)
+3. **.env** - Umgebungsvariablen für sensible Daten
+
+### config.yaml
+
+Die Hauptkonfigurationsdatei `config.yaml` ermöglicht die Konfiguration aller Aspekte der Anwendung:
+
+```yaml
+# Footer configuration
+footer:
+  home:
+    label: "Home"
+    link: "https://lukas-schmidt-russnak.de"
+    enabled: true
+    new_tab: true
+  documentation:
+    label: "Dokumentation"
+    link: "https://github.com/lsr-dev/ti-monitoring"
+    enabled: true
+    new_tab: true
+  privacy:
+    label: "Datenschutz"
+    link: "https://lukas-schmidt-russnak.de/datenschutz/"
+    enabled: true
+    new_tab: true
+  imprint:
+    label: "Impressum"
+    link: "https://lukas-schmidt-russnak.de/impressum/"
+    enabled: true
+    new_tab: true
+  copyright:
+    text: "© Lukas Schmidt-Russnak"
+    enabled: true
+
+# Core configuration
+core:
+  # URL for API
+  url: "https://ti-lage.prod.ccs.gematik.solutions/lageapi/v1/tilage/bu/PU"
+  
+  # Path to hdf5 file for saving the availability data 
+  file_name: "data.hdf5"
+  
+  # Home URL for dash app
+  home_url: "https://ti-monitoring.lukas-schmidt-russnak.de"
+  
+  # Time frame for statistics in web app
+  stats_delta_hours: 12
+  
+  # Configuration file for notifications
+  notifications_config_file: "notifications.json"
+  
+  # Header configuration
+  header:
+    # Page title
+    title: "TI-Monitoring"
+    
+    # Logo configuration
+    logo:
+      # Path to logo image
+      path: "assets/logo.svg"
+      
+      # Logo alt text
+      alt: "TI-Monitoring Logo"
+      
+      # Logo height (in pixels)
+      height: 50
+      
+      # Logo width (in pixels)
+      width: 50
+```
+
+### myconfig.py
+
+Die Datei `myconfig.py` dient als Fallback für die Konfiguration und enthält Standardwerte:
+
+```python
+# URL for API
+url = "https://ti-lage.prod.ccs.gematik.solutions/lageapi/v1/tilage/bu/PU"
+
+# path to hdf5 file for saving the availability data
+file_name = "data.hdf5"
+
+# switching email notifications on/off
+notifications = False
+
+# configuration for notifications
+notifications_config_file = 'notifications.json'
+
+# smtp settings for email notifications
+smtp_settings = {
+    'host' : '********',
+    'port' : 587,
+    'user' : '********',
+    'password' : '********',
+    'from' : '********'
+}
+
+# home url for dash app
+home_url = 'https://ti-monitoring.lukas-schmidt-russnak.de'
+
+# time frame for statistics in web app
+stats_delta_hours = 12
+```
+
+### .env
+
+Die `.env` Datei wird für sensible Konfigurationsdaten wie Passwörter verwendet:
+
+```env
+# Password for notification settings page
+NOTIFICATION_SETTINGS_PASSWORD=your_secure_password_here
+```
+
 ## Abruf und Archivierung
 Abruf und Archivierung erfolgen durch das Skript `cron.py`, das alle fünf Minuten durch einen Cronjob ausgeführt werden sollte. Um möglichst die aktuellsten Daten abzugreifen,  empfiehlt sich ein minimaler Versatz zum Bereitstellungszeitpunkt der Daten:
 ```

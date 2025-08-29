@@ -2,11 +2,36 @@ import dash
 from dash import html
 from mylibrary import *
 from myconfig import *
+import yaml
+import os
+
+def load_config():
+    """Load configuration from YAML file"""
+    config_path = os.path.join(os.path.dirname(__file__), '..', 'config.yaml')
+    try:
+        with open(config_path, 'r', encoding='utf-8') as f:
+            config = yaml.safe_load(f)
+        return config
+    except FileNotFoundError:
+        return {}
+    except Exception:
+        return {}
+
+def load_core_config():
+    """Load core configuration from YAML file"""
+    config = load_config()
+    return config.get('core', {})
 
 dash.register_page(__name__, path='/')
 
 def serve_layout():
-    cis = get_data_of_all_cis(file_name)
+    # Load core configurations
+    core_config = load_core_config()
+    
+    # Get file_name from YAML as primary source, fallback to myconfig.py
+    config_file_name = core_config.get('file_name') or file_name
+    
+    cis = get_data_of_all_cis(config_file_name)
     grouped = cis.groupby('product')
     products = []
     for index, row in cis.iterrows():

@@ -3,6 +3,25 @@ from dash import html, dcc, Input, Output, State, callback, no_update
 import json
 from mylibrary import *
 from myconfig import *
+import yaml
+import os
+
+def load_config():
+    """Load configuration from YAML file"""
+    config_path = os.path.join(os.path.dirname(__file__), '..', 'config.yaml')
+    try:
+        with open(config_path, 'r', encoding='utf-8') as f:
+            config = yaml.safe_load(f)
+        return config
+    except FileNotFoundError:
+        return {}
+    except Exception:
+        return {}
+
+def load_core_config():
+    """Load core configuration from YAML file"""
+    config = load_config()
+    return config.get('core', {})
 
 dash.register_page(__name__, path='/notifications')
 
@@ -117,8 +136,12 @@ def display_profiles(auth_data, save_clicks, delete_clicks):
     if not auth_data.get('authenticated', False):
         return []
     
+    # Load core configurations
+    core_config = load_core_config()
+    config_notifications_config_file = core_config.get('notifications_config_file') or notifications_config_file
+    
     try:
-        config = get_notification_config(notifications_config_file)
+        config = get_notification_config(config_notifications_config_file)
         if not config:
             return html.P('No notification profiles found. Add a new profile to get started.')
         
@@ -176,7 +199,11 @@ def show_profile_form(add_clicks, edit_clicks, auth_data):
             button_data = json.loads(button_id.replace("'", '"'))
             index = button_data['index']
             
-            config = get_notification_config(notifications_config_file)
+            # Load core configurations
+            core_config = load_core_config()
+            config_notifications_config_file = core_config.get('notifications_config_file') or notifications_config_file
+            
+            config = get_notification_config(config_notifications_config_file)
             if 0 <= index < len(config):
                 profile = config[index]
                 name = profile.get('name', '')
@@ -242,8 +269,12 @@ def handle_profile_form(save_clicks, cancel_clicks, edit_index, name, notificati
         }
         
         try:
+            # Load core configurations
+            core_config = load_core_config()
+            config_notifications_config_file = core_config.get('notifications_config_file') or notifications_config_file
+            
             # Load existing config
-            config = get_notification_config(notifications_config_file)
+            config = get_notification_config(config_notifications_config_file)
             
             if edit_index is not None and 0 <= edit_index < len(config):
                 # Update existing profile
@@ -253,7 +284,7 @@ def handle_profile_form(save_clicks, cancel_clicks, edit_index, name, notificati
                 config.append(profile)
             
             # Save config
-            if save_notification_config(notifications_config_file, config):
+            if save_notification_config(config_notifications_config_file, config):
                 return [{'display': 'none'}, '', 0]  # Hide form and reset clicks
             else:
                 return [no_update, 'Error saving configuration.', 0]
@@ -286,7 +317,11 @@ def show_delete_confirm(delete_clicks):
         button_data = json.loads(button_id.replace("'", '"'))
         index = button_data['index']
         
-        config = get_notification_config(notifications_config_file)
+        # Load core configurations
+        core_config = load_core_config()
+        config_notifications_config_file = core_config.get('notifications_config_file') or notifications_config_file
+        
+        config = get_notification_config(config_notifications_config_file)
         if 0 <= index < len(config):
             profile_name = config[index].get('name', 'Unnamed Profile')
             message = f'Are you sure you want to delete the profile "{profile_name}"?'
@@ -320,15 +355,19 @@ def delete_profile(submit_n_clicks, triggered):
                     button_data = json.loads(button_id.replace("'", '"'))
                 index = button_data['index']
                 
+                # Load core configurations
+                core_config = load_core_config()
+                config_notifications_config_file = core_config.get('notifications_config_file') or notifications_config_file
+                
                 # Load config
-                config = get_notification_config(notifications_config_file)
+                config = get_notification_config(config_notifications_config_file)
                 
                 # Remove profile at index
                 if 0 <= index < len(config):
                     config.pop(index)
                     
                     # Save updated config
-                    save_notification_config(notifications_config_file, config)
+                    save_notification_config(config_notifications_config_file, config)
     except Exception:
         pass
     

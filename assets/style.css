@@ -11,7 +11,7 @@ body {
 #react-entry-point {
     box-shadow: 0 0 20px 5px lightgrey;
 }
-main, header, #footer {
+main, #footer {
     max-width: 1200px;
     width: calc(100vw - 40px);
     padding: 5px 20px;
@@ -30,6 +30,10 @@ header {
     align-items: center;
     box-shadow: 0 2px 4px rgba(0,0,0,0.1); /* Subtle shadow for depth */
     height: 100px; /* Explicit height */
+    max-width: none; /* Remove max-width constraint */
+    width: 100%; /* Full width */
+    padding: 5px 20px; /* Keep some padding */
+    box-sizing: border-box; /* Include padding in width calculation */
 }
 #logo-wrapper {
     display: flex;

@@ -23,3 +23,39 @@ footer:
   copyright:
     text: "© Lukas Schmidt-Russnak"
     enabled: true
+
+# Core configuration
+core:
+  # URL for API
+  url: "https://ti-lage.prod.ccs.gematik.solutions/lageapi/v1/tilage/bu/PU"
+  
+  # Path to hdf5 file for saving the availability data 
+  file_name: "data.hdf5"
+  
+  # Home URL for dash app
+  home_url: "https://ti-monitoring.lukas-schmidt-russnak.de"
+  
+  # Time frame for statistics in web app
+  stats_delta_hours: 12
+  
+  # Configuration file for notifications
+  notifications_config_file: "notifications.json"
+  
+  # Header configuration
+  header:
+    # Page title
+    title: "TI-Monitoring"
+    
+    # Logo configuration
+    logo:
+      # Path to logo image
+      path: "assets/logo.svg"
+      
+      # Logo alt text
+      alt: "TI-Monitoring Logo"
+      
+      # Logo height (in pixels)
+      height: 50
+      
+      # Logo width (in pixels)
+      width: 50

@@ -1,11 +1,36 @@
 from mylibrary import *
 from myconfig import *
+import yaml
+import os
+
+def load_config():
+    """Load configuration from YAML file"""
+    config_path = os.path.join(os.path.dirname(__file__), '..', '..', 'config.yaml')
+    try:
+        with open(config_path, 'r', encoding='utf-8') as f:
+            config = yaml.safe_load(f)
+        return config
+    except FileNotFoundError:
+        return {}
+    except Exception:
+        return {}
+
+def load_core_config():
+    """Load core configuration from YAML file"""
+    config = load_config()
+    return config.get('core', {})
 
 import matplotlib.pyplot as plt
 from matplotlib.ticker import FuncFormatter
 
 def comma_format(x, pos):
     return str(x).replace('.', ',')
+
+# Load core configurations
+core_config = load_core_config()
+
+# Get file_name from YAML as primary source, fallback to myconfig.py
+file_name = core_config.get('file_name') or file_name
 
 # specify the file name if it differs from the name in the config file
 #file_name = 'data_2025_KW34.hdf5'
