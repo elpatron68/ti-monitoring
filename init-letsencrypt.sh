@@ -1,7 +1,8 @@
 #!/bin/bash
 
 if [ -f .env ]; then
-  export $(cat .env | xargs)
+  # Export only non-comment lines from .env file
+  export $(grep -v '^#' .env | xargs)
 fi
 
 echo "Using domain: $SSL_DOMAIN"
@@ -12,6 +13,10 @@ if [ -z "$SSL_DOMAIN" ] || [ -z "$SSL_EMAIL" ]; then
   exit 1
 fi
 
+echo "### Creating dummy certificate directory for $SSL_DOMAIN ..."
+mkdir -p /home/markus/ti-monitoring/nginx/certbot-www/.well-known/acme-challenge/
+mkdir -p /home/markus/ti-monitoring/nginx/certbot-conf/live/$SSL_DOMAIN/
+
 echo "### Creating dummy certificate for $SSL_DOMAIN ..."
 docker compose run --rm --entrypoint "\
   openssl req -x509 -nodes -newkey rsa:4096 -days 1\
@@ -21,7 +26,8 @@ docker compose run --rm --entrypoint "\
 echo
 
 echo "### Starting nginx ..."
-docker compose up --force-recreate -d nginx
+# Process the template and start nginx
+SSL_DOMAIN=$SSL_DOMAIN docker compose up --force-recreate -d nginx
 echo
 
 echo "### Deleting dummy certificate for $SSL_DOMAIN ..."
