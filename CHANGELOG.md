@@ -7,11 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Nginx reverse proxy with Let's Encrypt SSL certificate support
+- Automated SSL certificate renewal with Certbot
+- Configuration options for SSL domain and email in config.yaml
+- init-letsencrypt.sh script for initial certificate setup
+
 ### Changed
 - Updated Dockerfile to use Gunicorn as the web server instead of Flask development server
 - Added Gunicorn to requirements.txt
 - Created docker-compose.yml for easier deployment
 - Updated README.md with Gunicorn deployment information
+- Enhanced docker-compose.yml with nginx and certbot services
 
 ## [1.2.1] - 2024-05-21
 

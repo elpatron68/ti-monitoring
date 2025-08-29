@@ -260,6 +260,26 @@ docker-compose up -d
 
 Die Webanwendung wird nun standardmäßig mit Gunicorn betrieben, einem produktionsreifen WSGI-Server. Die Docker-Konfiguration startet automatisch den Gunicorn-Server mit 4 Worker-Prozessen.
 
+### Nginx Reverse Proxy with Let's Encrypt
+
+Das Projekt enthält nun auch eine nginx-Konfiguration mit Let's Encrypt-Unterstützung für automatische HTTPS-Zertifikate. Die Konfiguration erfolgt über die `config.yaml`:
+
+```yaml
+core:
+  ssl:
+    domain: "ti-monitoring.example.com"
+    email: "admin@example.com"
+    enabled: true
+```
+
+Nach dem Starten der Container mit `docker-compose up -d` muss das init-letsencrypt.sh Skript ausgeführt werden, um die ersten Zertifikate zu erhalten:
+
+```bash
+./init-letsencrypt.sh
+```
+
+Das Skript liest die Domain und E-Mail aus der `config.yaml` und fordert automatisch ein Zertifikat von Let's Encrypt an.
+
 ### Environment Variables
 
 Für die Konfiguration im Docker-Betrieb sollten Umgebungsvariablen verwendet werden:

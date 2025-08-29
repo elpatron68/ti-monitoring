@@ -1,10 +1,12 @@
 version: '3.8'
 
+volumes:
+  certbot-www:
+  certbot-conf:
+
 services:
   ti-monitoring-web:
     build: .
-    ports:
-      - "8050:8050"
     volumes:
       - ./data.hdf5:/app/data.hdf5
       - ./config.yaml:/app/config.yaml
@@ -12,6 +14,8 @@ services:
     environment:
       - PYTHONPATH=/app
     restart: unless-stopped
+    expose:
+      - "8050"
 
   ti-monitoring-cron:
     build: .
@@ -23,3 +27,28 @@ services:
       - PYTHONPATH=/app
     command: python cron.py
     restart: unless-stopped
+
+  nginx:
+    image: nginx:alpine
+    volumes:
+      - ./nginx/conf.d:/etc/nginx/conf.d
+      - certbot-www:/var/www/certbot
+      - certbot-conf:/etc/letsencrypt
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      - SSL_DOMAIN=${SSL_DOMAIN}
+    depends_on:
+      - ti-monitoring-web
+    restart: unless-stopped
+
+  certbot:
+    image: certbot/certbot
+    volumes:
+      - certbot-www:/var/www/certbot
+      - certbot-conf:/etc/letsencrypt
+    environment:
+      - SSL_DOMAIN=${SSL_DOMAIN}
+      - SSL_EMAIL=${SSL_EMAIL}
+    entrypoint: /bin/sh -c 'trap exit TERM; while :; do certbot renew; sleep 12h & wait $${!}; done;'

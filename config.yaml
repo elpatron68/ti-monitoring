@@ -41,6 +41,17 @@ core:
   # Configuration file for notifications
   notifications_config_file: "notifications.json"
   
+  # SSL/HTTPS configuration with Let's Encrypt
+  ssl:
+    # Domain name for Let's Encrypt certificate
+    domain: "ti-monitoring.example.com"
+    
+    # Email for Let's Encrypt registration
+    email: "admin@example.com"
+    
+    # Enable HTTPS
+    enabled: false
+  
   # Header configuration
   header:
     # Page title
