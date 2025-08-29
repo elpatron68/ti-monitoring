@@ -10,9 +10,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application code
 COPY . .
 
-# Create a non-root user
-RUN useradd --create-home --shell /bin/bash appuser
-USER appuser
+# Create the data file during build
+RUN python -c "from mylibrary import *; initialize_data_file('data.hdf5')" || echo "Data file creation failed, will be created at runtime"
 
 # Expose port for web app
 EXPOSE 8050

@@ -1,7 +1,6 @@
 import dash
 from dash import Dash, html, dcc
 from mylibrary import *
-from myconfig import *
 import yaml
 import os
 
@@ -61,8 +60,8 @@ def serve_layout():
     core_config = load_core_config()
     header_config = load_header_config()
     
-    # Get home_url from config.yaml as primary source, fallback to myconfig.py
-    app_home_url = core_config.get('home_url') or home_url
+    # Get home_url from config.yaml
+    app_home_url = core_config.get('home_url', 'https://ti-monitoring.lukas-schmidt-russnak.de')
     
     # Get header configurations
     header_title = header_config.get('title', 'TI-Monitoring')
@@ -105,6 +104,16 @@ def serve_layout():
         if element:
             footer_elements.append(element)
     
+    # Get home page content
+    try:
+        from pages.home import serve_layout as home_layout
+        home_content = home_layout()
+    except Exception as e:
+        home_content = html.Div([
+            html.P('Fehler beim Laden der Home-Seite.'),
+            html.P(f'Fehler: {str(e)}')
+        ])
+    
     layout = html.Div([
         html.Header(children = [
             html.Div(id='logo-wrapper', children = [
@@ -125,7 +134,7 @@ def serve_layout():
                     id = 'spinner',
                     overlay_style = {"visibility":"visible", "filter": "blur(2px)"},
                     type = "circle",
-                    children = [dash.page_container]
+                    children = [home_content]
                 )
             ]),
 			html.Div(className = 'box', children = [

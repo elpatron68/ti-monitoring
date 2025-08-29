@@ -30,8 +30,58 @@ def serve_layout():
     
     # Get file_name from YAML as primary source, fallback to myconfig.py
     config_file_name = core_config.get('file_name') or file_name
+    config_url = core_config.get('url')
     
-    cis = get_data_of_all_cis(config_file_name)
+    # Check if data file exists and initialize if needed
+    if not os.path.exists(config_file_name):
+        try:
+            # Create data directory if it doesn't exist
+            os.makedirs(os.path.dirname(config_file_name), exist_ok=True)
+            # Initialize empty data file
+            initialize_data_file(config_file_name)
+            print(f"Initialized data file: {config_file_name}")
+        except Exception as e:
+            print(f"Error initializing data file: {e}")
+    
+    # Try to get data
+    try:
+        cis = get_data_of_all_cis(config_file_name)
+    except Exception as e:
+        print(f"Error reading data: {e}")
+        cis = pd.DataFrame()  # Empty DataFrame
+    
+    # Check if DataFrame is empty
+    if cis.empty:
+        # Try to load data from API if URL is available
+        if config_url:
+            try:
+                print(f"Loading data from API: {config_url}")
+                update_file(config_file_name, config_url)
+                # Try to read data again
+                cis = get_data_of_all_cis(config_file_name)
+                print(f"Loaded {len(cis)} records from API")
+            except Exception as e:
+                print(f"Error loading data from API: {e}")
+        
+        # If still empty, show message
+        if cis.empty:
+            layout = html.Div([
+                html.P('Keine Daten verfügbar. Versuche Daten von der API zu laden...'),
+                html.P('Falls das Problem weiterhin besteht, überprüfen Sie die API-Verbindung.'),
+                html.P(f'API URL: {config_url or "Nicht konfiguriert"}'),
+                html.P(f'Daten-Datei: {config_file_name}')
+            ])
+            return layout
+    
+    # Check if 'product' column exists
+    if 'product' not in cis.columns:
+        layout = html.Div([
+            html.P('Daten sind verfügbar, aber die Spalte "product" fehlt. Möglicherweise ist die Datenstruktur fehlerhaft.'),
+            html.P('Verfügbare Spalten: ' + ', '.join(cis.columns.tolist())),
+            html.P(f'Anzahl Datensätze: {len(cis)}')
+        ])
+        return layout
+    
     grouped = cis.groupby('product')
     products = []
     for index, row in cis.iterrows():

@@ -30,7 +30,7 @@ core:
   url: "https://ti-lage.prod.ccs.gematik.solutions/lageapi/v1/tilage/bu/PU"
   
   # Path to hdf5 file for saving the availability data 
-  file_name: "data.hdf5"
+  file_name: "data/data.hdf5"
   
   # Home URL for dash app
   home_url: "https://ti-monitoring.lukas-schmidt-russnak.de"

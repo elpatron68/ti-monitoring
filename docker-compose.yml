@@ -6,9 +6,9 @@ services:
   ti-monitoring-web:
     build: .
     volumes:
-      - ./data.hdf5:/app/data.hdf5
       - ./config.yaml:/app/config.yaml
       - ./notifications.json:/app/notifications.json
+      - ./data:/app/data
     environment:
       - PYTHONPATH=/app
     restart: unless-stopped
@@ -18,9 +18,9 @@ services:
   ti-monitoring-cron:
     build: .
     volumes:
-      - ./data.hdf5:/app/data.hdf5
       - ./config.yaml:/app/config.yaml
       - ./notifications.json:/app/notifications.json
+      - ./data:/app/data
     environment:
       - PYTHONPATH=/app
     command: python cron.py
@@ -32,6 +32,8 @@ services:
       - ./nginx/conf.d:/etc/nginx/conf.d
       - certbot-www:/var/www/certbot
       - certbot-conf:/etc/letsencrypt
+      - ./letsencrypt-config/options-ssl-nginx.conf:/etc/letsencrypt/options-ssl-nginx.conf:ro
+      - ./letsencrypt-config/ssl-dhparams.pem:/etc/letsencrypt/ssl-dhparams.pem:ro
     ports:
       - "80:80"
       - "443:443"
