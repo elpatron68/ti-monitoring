@@ -7,7 +7,7 @@ app = Dash(__name__, use_pages=True, title='TI-Monitoring')
 server = app.server
 
 def serve_layout():
-    layout = [
+    layout = html.Div([
         html.Header(children = [
             html.Div(id='logo-wrapper', children = [
                 html.A(href=home_url, children = [
@@ -39,7 +39,7 @@ def serve_layout():
             html.Div([html.A('Impressum', href='https://lukas-schmidt-russnak.de/impressum/', target='_blank')]),
             html.Div('© Lukas Schmidt-Russnak')
         ])
-    ]
+    ])
     return layout
 
 app.layout = serve_layout

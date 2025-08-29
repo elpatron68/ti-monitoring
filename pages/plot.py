@@ -8,6 +8,16 @@ dash.register_page(__name__)
 
 
 def serve_layout(ci=None, **other_unknown_query_strings):
+    # Handle case when ci is None (no query parameter provided)
+    if ci is None:
+        return html.Div([
+            html.H2('Fehler: Keine Komponente angegeben'),
+            html.P('Bitte geben Sie eine Komponenten-ID in der URL an, z.B. /plot?ci=12345'),
+            html.A(href=home_url, children=[
+                html.Button('Zurück zur Startseite', className='button')
+            ])
+        ])
+    
     cutoff = (pd.Timestamp.now() - pd.Timedelta(hours=stats_delta_hours)).tz_localize(get_localzone())
     ci_data = get_availability_data_of_ci(file_name, ci)
     ci_data = ci_data[ci_data['times']>=cutoff]
@@ -31,7 +41,7 @@ def serve_layout(ci=None, **other_unknown_query_strings):
     ci_info = get_data_of_ci(file_name, ci)
     layout = [
         html.H2('Verfügbarkeit der Komponente ' + str(ci)),
-        html.H3(ci_info['product'] + ', ' + ci_info['name'] + ', ' + ci_info['organization']),
+        html.H3(ci_info['product'].iloc[0] + ', ' + ci_info['name'].iloc[0] + ', ' + ci_info['organization'].iloc[0]),
         html.A(href=home_url, children = [
             html.Button('Zurück', className = 'button')
         ]),

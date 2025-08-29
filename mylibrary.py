@@ -8,6 +8,7 @@ from tzlocal import get_localzone
 import smtplib
 from email.message import EmailMessage
 from email.mime.text import MIMEText
+import apprise
 
 def initialize_data_file(file_name):
     """
@@ -216,6 +217,99 @@ def create_html_list_item_for_change(change, home_url):
         html_str += 'keine Veränderung'
     html_str += ', Stand: ' + str(pretty_timestamp(change['time'])) + '</li>'
     return html_str
+
+def create_notification_message(changes, recipient_name, home_url):
+    """
+    Creates an HTML formatted message for notifications
+
+    Args:
+        changes (DataFrame): DataFrame with availability changes
+        recipient_name (str): Name of the recipient
+        home_url (str): Base URL of the dashboard
+
+    Returns:
+        str: HTML formatted message
+    """
+    message = f'<html lang="de"><body><p>Hallo {recipient_name},</p>'
+    message += '<p>bei der letzten Überprüfung hat sich die Verfügbarkeit der folgenden von Ihnen abonierten Komponenten geändert:</p><ul>'
+    
+    for index, change in changes.iterrows():
+        message += create_html_list_item_for_change(change, home_url)
+        
+    if home_url:    
+        message += f'</ul><p>Den aktuellen Status aller Komponenten können Sie unter <a href="{home_url}">{home_url}</a> einsehen.</p>'
+    message += '<p>Weitere Hintergrundinformationen finden Sie im <a href="https://fachportal.gematik.de/ti-status">Fachportal der gematik GmbH</a>.</p><p>Viele Grüße<br>TI-Monitoring</p></body></html>'
+    
+    return message
+
+def load_apprise_config(notifications_config_file):
+    """
+    Loads and potentially converts notification configuration for Apprise
+
+    Args:
+        notifications_config_file (str): Path to json file with notification configurations
+
+    Returns:
+        list: List of notification configurations with Apprise URLs
+    """
+    with open(notifications_config_file, 'r', encoding='utf-8') as f:
+        notification_config = json.load(f)
+    
+    # Convert legacy configuration to Apprise format if needed
+    for config in notification_config:
+        # If apprise_urls doesn't exist but recipients does, convert recipients to mailto URLs
+        if 'apprise_urls' not in config and 'recipients' in config:
+            config['apprise_urls'] = [f"mailto://{recipient}" for recipient in config['recipients']]
+        # If neither exists, create empty list
+        elif 'apprise_urls' not in config:
+            config['apprise_urls'] = []
+            
+    return notification_config
+
+def send_apprise_notifications(file_name, notifications_config_file, home_url):
+    """
+    Sends notifications via Apprise for each notification configuration about all
+    changes that are relevant for the respective configuration
+
+    Args:
+        file_name (str): Path to hdf5 file
+        notifications_config_file (str): Path to json file with notification configurations
+        home_url (str): base url of dash app
+
+    Returns:
+        None
+    """
+    # Load and potentially convert configuration
+    notification_config = load_apprise_config(notifications_config_file)
+    
+    # Get changes
+    ci_data = get_data_of_all_cis(file_name)
+    changes = ci_data[ci_data['availability_difference']!=0]
+    changes_sorted = changes.sort_values(by = 'availability_difference')
+    
+    # Process each configuration
+    for config in notification_config:
+        try:
+            # Filter relevant changes
+            if (config['type'] == 'whitelist'):
+                relevant_changes = changes_sorted[changes_sorted['ci'].isin(config['ci_list'])]
+            elif (config['type'] == 'blacklist'):
+                relevant_changes = changes_sorted[~changes_sorted['ci'].isin(config['ci_list'])]
+                
+            number_of_relevant_changes = len(relevant_changes)
+            if number_of_relevant_changes > 0:
+                # Create notification message
+                message = create_notification_message(relevant_changes, config['name'], home_url)
+                subject = f'TI-Monitoring: {number_of_relevant_changes} Änderungen der Verfügbarkeit'
+                
+                # Send via Apprise
+                apobj = apprise.Apprise()
+                for url in config['apprise_urls']:
+                    apobj.add(url)
+                apobj.notify(title=subject, body=message, body_format=apprise.NotifyFormat.HTML)
+        except Exception as e:
+            print(f'Sending notification for profile failed: {e}')
+            pass
 
 def send_notifications(file_name, notifications_config_file, smtp_settings, home_url):
     """

@@ -1,14 +1,20 @@
 [
   {
-    "name": "",
-    "recipients": [],
-    "ci_list": [],
-    "type": ""
+    "name": "Team Infrastructure",
+    "apprise_urls": [
+      "mailto://user:pass@gmail.com?to=infra@example.com",
+      "tgram://bottoken/ChatID",
+      "slack://tokenA/tokenB/tokenC"
+    ],
+    "ci_list": ["CI001", "CI002", "CI003"],
+    "type": "whitelist"
   },
   {
-    "name": "",
-    "recipients": [],
-    "ci_list": [],
-    "type": ""
+    "name": "Management",
+    "apprise_urls": [
+      "mailto://user:pass@company.com?to=management@company.com"
+    ],
+    "ci_list": ["CI004", "CI005"],
+    "type": "whitelist"
   }
 ]

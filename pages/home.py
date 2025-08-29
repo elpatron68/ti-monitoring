@@ -20,10 +20,12 @@ def serve_layout():
                 html.Div(
                     className='accordion-element-title',
                     children = [
-                        html.Span(className = 'availability-icon ' + 
-                            'available' if sum(group['current_availability']) == len(group)
-                            else 'availability-icon unavailable' if sum(group['current_availability']) == 0
-                            else 'availability-icon impaired',
+                        html.Span(
+                            className='availability-icon ' + (
+                                'available' if sum(group['current_availability']) == len(group)
+                                else 'unavailable' if sum(group['current_availability']) == 0
+                                else 'impaired'
+                            ),
                         ),
                         html.Span(
                             className = 'group-name',
@@ -35,7 +37,12 @@ def serve_layout():
                 html.Div(className='accordion-element-content', children = [
                     html.Ul(children = [
                         html.Li([
-                            html.Span(className = 'availability-icon ' + 'available' if row['current_availability'] == 1 else 'availability-icon unavailable'),
+                            html.Span(
+                                className='availability-icon ' + (
+                                    'available' if row['current_availability'] == 1 
+                                    else 'unavailable'
+                                )
+                            ),
                             html.Div([
                                 html.A(str(row['ci']), href='/plot?ci=' + str(row['ci'])),
                                 ': ' + row['name'] + ', ' + row['organization'] + ', ' + pretty_timestamp(row['time'])

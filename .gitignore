@@ -2,3 +2,8 @@
 test.py
 __pycache__
 data.hdf5
+.venv/
+.qoder/
+.idea/
+.gitignore
+</import>
