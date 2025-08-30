@@ -16,12 +16,14 @@ Diese Anleitung beschreibt die Installation von TI-Monitoring sowohl für Docker
 ## Gemeinsame Vorbereitung
 
 ### 1. Repository klonen
+
 ```bash
 git clone https://github.com/lsr-dev/ti-monitoring.git
 cd ti-monitoring
 ```
 
 ### 2. Data-Verzeichnis anlegen
+
 ```bash
 mkdir data
 ```
@@ -29,6 +31,7 @@ mkdir data
 ### 3. Konfigurationsdateien einrichten
 
 #### .env Datei konfigurieren
+
 ```bash
 cp .env.example .env
 ```
@@ -44,6 +47,7 @@ SSL_EMAIL=admin@example.com
 ```
 
 #### notifications.json konfigurieren
+
 ```bash
 cp notifications.json.example notifications.json
 ```
@@ -68,11 +72,13 @@ Bearbeiten Sie die `notifications.json` Datei und passen Sie Ihre Benachrichtigu
 ```
 
 #### config.yaml konfigurieren
+
 ```bash
 cp config.yaml.example config.yaml
 ```
 
 Bearbeiten Sie die `config.yaml` Datei und passen Sie folgende Werte an:
+
 ```yaml
 # Core configuration
 core:
@@ -124,6 +130,7 @@ curl http://localhost:8050
 Die Produktionsumgebung ist für den Live-Betrieb mit HTTPS optimiert:
 
 #### 1. Vorbereitung
+
 ```bash
 # SSL-Domain in .env konfigurieren
 echo "SSL_DOMAIN=ihre-domain.com" >> .env
@@ -135,6 +142,7 @@ mkdir -p letsencrypt-config
 ```
 
 #### 2. Container starten
+
 ```bash
 # Container starten
 docker compose up -d
@@ -144,6 +152,7 @@ docker compose ps
 ```
 
 #### 3. HTTPS mit Let's Encrypt einrichten
+
 ```bash
 # Erste Zertifikate anfordern
 ./init-letsencrypt.sh
@@ -153,6 +162,7 @@ docker compose logs certbot
 ```
 
 #### 4. Logs überprüfen
+
 ```bash
 # Web-Container
 docker compose logs ti-monitoring-web
@@ -168,6 +178,7 @@ docker compose logs certbot
 ```
 
 #### 5. Zugriff testen
+
 - HTTP: `http://ihre-domain.com` (wird zu HTTPS weitergeleitet)
 - HTTPS: `https://ihre-domain.com`
 
@@ -193,6 +204,7 @@ docker compose logs certbot
 ## Installation mit Python venv
 
 ### 1. Virtuelle Umgebung erstellen
+
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate  # Linux/macOS
@@ -201,23 +213,39 @@ source .venv/bin/activate  # Linux/macOS
 ```
 
 ### 2. Abhängigkeiten installieren
+
 ```bash
 pip install -r requirements.txt
 ```
 
 ### 3. Cron-Job einrichten
+Das Skript `cron.py` läuft selbstständig dauerhaft im Hintergrund und ruft alle 5 Minuten neue Daten ab. Es sollte nur **einmal gestartet** werden, nicht alle 5 Minuten neu ausgeführt.
+
 Fügen Sie folgenden Eintrag in Ihre crontab ein:
+
 ```bash
 crontab -e
 ```
 
 Eintrag hinzufügen:
+
 ```cron
-# Alle 5 Minuten TI-Monitoring ausführen
-*/5 * * * * cd /path/to/ti-monitoring && source .venv/bin/activate && python cron.py
+# m h  dom mon dow   command
+@reboot cd /path/to/ti-monitoring && source .venv/bin/activate && python cron.py
+```
+
+**Wichtig**: Verwenden Sie `@reboot` anstatt `*/5 * * * *`, da das Skript kontinuierlich läuft und nicht alle 5 Minuten neu gestartet werden soll.
+
+Alternativ können Sie das Skript manuell starten:
+
+```bash
+cd /path/to/ti-monitoring
+source .venv/bin/activate
+nohup python cron.py > cron.log 2>&1 &
 ```
 
 ### 4. Web-App starten (optional)
+
 ```bash
 # Im Hintergrund starten
 nohup python app.py > app.log 2>&1 &
@@ -228,7 +256,9 @@ gunicorn --bind 0.0.0.0:8050 --workers 2 app:server
 ```
 
 ### 5. Nginx konfigurieren (optional)
+
 Erstellen Sie eine Nginx-Konfiguration für die Web-App:
+
 ```nginx
 server {
     listen 80;
@@ -245,17 +275,20 @@ server {
 ## Verifikation der Installation
 
 ### 1. Datenbank überprüfen
+
 Nach dem ersten Lauf des Cron-Jobs sollte die Datei `data/data.hdf5` erstellt worden sein:
 ```bash
 ls -la data/
 ```
 
 ### 2. Web-Interface testen
+
 - Öffnen Sie die Web-App in Ihrem Browser
 - Überprüfen Sie, ob TI-Komponenten angezeigt werden
 - Testen Sie die Benachrichtigungseinstellungen
 
 ### 3. Cron-Job überprüfen
+
 ```bash
 # Für Docker
 docker compose logs ti-monitoring-cron --tail=50
@@ -269,6 +302,7 @@ tail -f /var/log/cron.log  # oder wo Ihre Cron-Logs landen
 ### Häufige Probleme
 
 #### Docker-Container startet nicht
+
 ```bash
 # Logs überprüfen
 docker compose logs
@@ -279,6 +313,7 @@ docker compose up -d
 ```
 
 #### Berechtigungsprobleme mit data-Verzeichnis
+
 ```bash
 # Berechtigungen korrigieren
 sudo chown -R $USER:$USER data/
@@ -286,16 +321,19 @@ chmod 755 data/
 ```
 
 #### Cron-Job funktioniert nicht
+
 - Überprüfen Sie die crontab-Einträge: `crontab -l`
 - Testen Sie das Skript manuell: `python cron.py`
 - Überprüfen Sie die Logs
 
 #### Web-App ist nicht erreichbar
+
 - Überprüfen Sie, ob der Port 8050 freigegeben ist
 - Testen Sie mit: `curl http://localhost:8050`
 - Überprüfen Sie Firewall-Einstellungen
 
 ### Logs überprüfen
+
 ```bash
 # Docker
 docker compose logs -f

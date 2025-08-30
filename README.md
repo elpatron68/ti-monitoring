@@ -25,6 +25,7 @@ Für detaillierte Installationsanweisungen siehe [INSTALL.md](INSTALL.md).
 TI-Monitoring kann sowohl mit Docker als auch mit Python venv installiert werden. Docker wird für die meisten Anwendungsfälle empfohlen.
 
 ### Schnellstart mit Docker
+
 ```bash
 # Repository klonen
 git clone https://github.com/lsr-dev/ti-monitoring.git
@@ -41,6 +42,7 @@ docker compose -f docker-compose-dev.yml up -d
 ```
 
 ### Abhängigkeiten
+
 Das Projekt verwendet eine requirements.txt Datei zur Verwaltung der Abhängigkeiten. Die requirements.txt Datei enthält alle notwendigen Abhängigkeiten, darunter:
 
 - numpy, pandas, h5py für Datenverarbeitung
@@ -65,11 +67,33 @@ Die Anwendung kann über mehrere Konfigurationsdateien konfiguriert werden:
 Alle Konfigurationsdateien basieren auf den entsprechenden `.example` Dateien, die Sie kopieren und anpassen müssen.
 
 ## Abruf und Archivierung
-Abruf und Archivierung erfolgen durch das Skript `cron.py`, das alle fünf Minuten durch einen Cronjob ausgeführt werden sollte. Um möglichst die aktuellsten Daten abzugreifen,  empfiehlt sich ein minimaler Versatz zum Bereitstellungszeitpunkt der Daten:
+
+Abruf und Archivierung erfolgen durch das Skript `cron.py`, das **selbstständig dauerhaft im Hintergrund läuft** und alle fünf Minuten neue Daten abruft.
+
+**Hinweis**: Die folgenden Informationen gelten nur für die Python venv-Installation. Bei der Docker-Installation läuft das Skript automatisch als Container.
+
+### Python venv-Installation
+
+Das Skript sollte einmal gestartet werden und läuft dann kontinuierlich. Fügen Sie folgenden Eintrag in Ihre crontab ein:
+```bash
+crontab -e
 ```
+
+Eintrag hinzufügen:
+```cron
 # m h  dom mon dow   command
-2-59/5 * * * * /bin/bash -c 'source myenv/bin/activate && python cron.py'
+@reboot /bin/bash -c 'source .venv/bin/activate && python cron.py'
 ```
+
+Alternativ können Sie das Skript manuell starten:
+```bash
+source .venv/bin/activate
+nohup python cron.py > cron.log 2>&1 &
+```
+
+### Docker-Installation
+
+Bei der Docker-Installation läuft das Skript automatisch als `ti-monitoring-cron` Container und muss nicht manuell konfiguriert werden.
 Die Daten werden aufbereitet und in der Datei `data.hdf5` gespeichert. Existiert diese noch nicht, wird sie beim ersten Ausführen des Skriptes `cron.py` automatisch erzeugt.
 
 Innerhalb der Datei wird folgende Gruppenstruktur aufgebaut:
