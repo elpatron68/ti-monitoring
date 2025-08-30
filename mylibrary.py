@@ -10,17 +10,19 @@ from email.message import EmailMessage
 from email.mime.text import MIMEText
 import apprise
 import threading
+from collections import OrderedDict
 
 # Add dotenv import
 import os
 from dotenv import load_dotenv
 import hmac
 
-# Global cache for HDF5 data
-_hdf5_cache = {}
+# Global cache for HDF5 data with size limit
+_hdf5_cache = OrderedDict()
 _cache_lock = threading.Lock()
 _cache_timestamp = None
 _cache_ttl = 300  # 5 minutes cache TTL
+_cache_max_size = 50  # Maximum number of entries in cache
 
 def clear_hdf5_cache():
     """Clear the HDF5 cache to force fresh data reading"""
@@ -170,7 +172,7 @@ def get_data_of_all_cis(file_name):
         # Use SWMR mode to allow multiple readers
         with h5.File(file_name, 'r', swmr=True) as f:
             group = f["configuration_items"]
-            cis = group.keys()
+            cis = list(group.keys())  # Convert to list to avoid iterator issues
             for ci in cis:
                 group = f["configuration_items/"+ci]
                 ci_data = {}
@@ -184,11 +186,18 @@ def get_data_of_all_cis(file_name):
                     ci_data[name] = value
                 all_ci_data.append(ci_data)
         
-        # Update cache
+        # Update cache with size limit
         result_df = pd.DataFrame(all_ci_data)
         with _cache_lock:
+            # Remove oldest entries if cache is at max size
+            while len(_hdf5_cache) >= _cache_max_size:
+                _hdf5_cache.popitem(last=False)  # Remove oldest entry
+                
             _hdf5_cache[file_name] = result_df.copy()
             _cache_timestamp = current_time
+            
+            # Move to end to mark as most recently used
+            _hdf5_cache.move_to_end(file_name)
         
         return result_df
         
@@ -198,6 +207,8 @@ def get_data_of_all_cis(file_name):
         with _cache_lock:
             if file_name in _hdf5_cache:
                 print(f"Returning cached data due to error")
+                # Move to end to mark as most recently used
+                _hdf5_cache.move_to_end(file_name)
                 return _hdf5_cache[file_name].copy()
         # If no cache available, return empty DataFrame
         return pd.DataFrame()

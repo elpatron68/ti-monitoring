@@ -3,6 +3,7 @@ from mylibrary import *
 import yaml
 import os
 import time
+import gc
 
 def load_config():
     """Load configuration from YAML file"""
@@ -41,8 +42,10 @@ def main():
     print(f"Using URL: {config_url}")
     
     # Main loop - run every 5 minutes
+    iteration_count = 0
     while True:
         try:
+            iteration_count += 1
             print(f"Running cron job at {time.strftime('%Y-%m-%d %H:%M:%S')}")
             
             initialize_data_file(config_file_name)
@@ -60,6 +63,12 @@ def main():
                     print(f"Error with notifications: {e}")
             
             print(f"Cron job completed at {time.strftime('%Y-%m-%d %H:%M:%S')}")
+            
+            # Force garbage collection every 10 iterations to prevent memory buildup
+            if iteration_count % 10 == 0:
+                gc.collect()
+                print("Garbage collection performed")
+            
             print("Sleeping for 5 minutes...")
             
             # Sleep for 5 minutes (300 seconds)

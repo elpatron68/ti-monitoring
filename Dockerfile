@@ -16,5 +16,5 @@ RUN python -c "from mylibrary import *; initialize_data_file('data.hdf5')" || ec
 # Expose port for web app
 EXPOSE 8050
 
-# Default command to run the web app with Gunicorn
-CMD ["gunicorn", "--bind", "0.0.0.0:8050", "--workers", "4", "app:server"]
+# Use fewer workers to reduce resource contention
+CMD ["gunicorn", "--bind", "0.0.0.0:8050", "--workers", "2", "app:server"]

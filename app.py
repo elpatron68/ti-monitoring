@@ -7,21 +7,24 @@ import functools
 import time
 from flask import jsonify
 import psutil
+import gc
 
 app = Dash(__name__, use_pages=True, title='TI-Monitoring')
 server = app.server
 
 # Add local CSS for Material Icons
 
-# Configuration cache
+# Configuration cache with size limit
 _config_cache = {}
 _config_cache_timestamp = 0
 _config_cache_ttl = 300  # 5 seconds cache TTL
+_config_cache_max_size = 10  # Limit cache size
 
-# Layout cache
+# Layout cache with size limit
 _layout_cache = {}
 _layout_cache_timestamp = 0
 _layout_cache_ttl = 60  # 1 minute cache TTL
+_layout_cache_max_size = 5  # Limit cache size
 
 def load_config():
     """Load configuration from YAML file with caching"""
@@ -36,6 +39,12 @@ def load_config():
             with open(config_path, 'r', encoding='utf-8') as f:
                 _config_cache = yaml.safe_load(f) or {}
             _config_cache_timestamp = current_time
+            
+            # Limit cache size
+            if len(_config_cache) > _config_cache_max_size:
+                # Keep only the most recent entries
+                keys = list(_config_cache.keys())[:_config_cache_max_size]
+                _config_cache = {k: _config_cache[k] for k in keys}
         except (FileNotFoundError, Exception):
             _config_cache = {}
             _config_cache_timestamp = current_time
@@ -86,11 +95,6 @@ def build_footer_elements(footer_config):
                 footer_elements.append(element)
     
     return footer_elements
-
-@functools.lru_cache(maxsize=1)
-def get_cached_layout(config_hash):
-    """Get cached layout based on configuration hash"""
-    return None  # Will be implemented below
 
 def serve_layout():
     # Check layout cache first
@@ -164,9 +168,14 @@ def serve_layout():
         ])
         
         _layout_cache_timestamp = current_time
+        
+        # Force garbage collection periodically
+        if int(current_time) % 300 == 0:  # Every 5 minutes
+            gc.collect()
     
     return _layout_cache
 
+# This is the correct way to set the layout - it should be the function itself, not the result of calling it
 app.layout = serve_layout
 
 # Health check endpoint

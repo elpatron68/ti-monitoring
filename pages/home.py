@@ -6,11 +6,13 @@ import yaml
 import os
 import functools
 import time
+import gc
 
-# Configuration cache for home page
+# Configuration cache for home page with size limit
 _home_config_cache = {}
 _home_config_cache_timestamp = 0
 _home_config_cache_ttl = 300  # 5 seconds cache TTL
+_home_config_cache_max_size = 10  # Limit cache size
 
 def load_config():
     """Load configuration from YAML file with caching"""
@@ -25,6 +27,12 @@ def load_config():
             with open(config_path, 'r', encoding='utf-8') as f:
                 _home_config_cache = yaml.safe_load(f) or {}
             _home_config_cache_timestamp = current_time
+            
+            # Limit cache size
+            if len(_home_config_cache) > _home_config_cache_max_size:
+                # Keep only the most recent entries
+                keys = list(_home_config_cache.keys())[:_home_config_cache_max_size]
+                _home_config_cache = {k: _home_config_cache[k] for k in keys}
         except (FileNotFoundError, Exception):
             _home_config_cache = {}
             _home_config_cache_timestamp = current_time
@@ -157,12 +165,24 @@ def serve_layout():
         return layout
     
     # Optimize DataFrame operations
-    grouped = cis.groupby('product')
+    try:
+        grouped = cis.groupby('product')
+    except Exception as e:
+        layout = html.Div([
+            html.P('Fehler beim Gruppieren der Daten nach Produkt.'),
+            html.P(f'Fehler: {str(e)}'),
+            html.P(f'Verfügbare Spalten: {", ".join(cis.columns.tolist()) if not cis.empty else "Keine"}')
+        ])
+        return layout
     
     # Create accordion elements efficiently
     accordion_elements = []
     for group_name, group_data in grouped:
         accordion_elements.append(create_accordion_element(group_name, group_data))
+    
+    # Force garbage collection periodically to prevent memory buildup
+    if int(time.time()) % 300 == 0:  # Every 5 minutes
+        gc.collect()
     
     layout = html.Div([
         html.P('Hier finden Sie eine nach Produkten gruppierte Übersicht sämtlicher TI-Komponenten. Neue Daten werden alle 5 Minuten bereitgestellt. Laden Sie die Seite neu, um die Ansicht zu aktualisieren.'),
