@@ -145,7 +145,7 @@ def serve_layout():
                 # Add navigation links with Material icons
                 html.Nav(children=[
                     html.A(html.I(className='material-icons', children='home'), href='/', className='nav-icon'),
-                    html.A(html.I(className='material-icons', children='settings'), href='/notifications', className='nav-icon')
+                    html.A(html.I(className='material-icons', children='notifications'), href='/notifications', className='nav-icon')
                 ], className='navigation')
             ]),
             html.Main(children = [

@@ -12,8 +12,8 @@ services:
     environment:
       - PYTHONPATH=/app
     restart: unless-stopped
-    expose:
-      - "8050"
+    ports:
+      - "8050:8050"
 
   ti-monitoring-cron:
     build: .
@@ -23,7 +23,7 @@ services:
       - ./data:/app/data
     environment:
       - PYTHONPATH=/app
-    command: python cron.py
+    command: ["python", "-u", "cron.py"]
     restart: unless-stopped
 
   nginx:

@@ -18,15 +18,30 @@ Bei Änderungen der Verfügbarkeit können Benachrichtigungen versendet werden. 
 * __Web-App__<br>
 Der aktuelle Status sämtlicher TI-Komponenten lässt sich nach Produkten gruppiert in einer interaktiven Web-App einsehen. Darüber hinaus kann für die einzelnen Komponenten eine Statistik der letzten Stunden aufgerufen werden.
 
-## Requirements
+## Installation
 
-Das Projekt verwendet eine requirements.txt Datei zur Verwaltung der Abhängigkeiten. Um alle benötigten Pakete zu installieren, führen Sie folgenden Befehl aus:
+Für detaillierte Installationsanweisungen siehe [INSTALL.md](INSTALL.md).
 
+TI-Monitoring kann sowohl mit Docker als auch mit Python venv installiert werden. Docker wird für die meisten Anwendungsfälle empfohlen.
+
+### Schnellstart mit Docker
 ```bash
-pip install -r requirements.txt
+# Repository klonen
+git clone https://github.com/lsr-dev/ti-monitoring.git
+cd ti-monitoring
+
+# Konfigurationsdateien einrichten
+mkdir data
+cp .env.example .env
+cp notifications.json.example notifications.json
+cp config.yaml.example config.yaml
+
+# Container starten
+docker compose -f docker-compose-dev.yml up -d
 ```
 
-Die requirements.txt Datei enthält alle notwendigen Abhängigkeiten, darunter:
+### Abhängigkeiten
+Das Projekt verwendet eine requirements.txt Datei zur Verwaltung der Abhängigkeiten. Die requirements.txt Datei enthält alle notwendigen Abhängigkeiten, darunter:
 
 - numpy, pandas, h5py für Datenverarbeitung
 - requests für HTTP-Anfragen
@@ -36,135 +51,18 @@ Die requirements.txt Datei enthält alle notwendigen Abhängigkeiten, darunter:
 - python-dotenv für Umgebungsvariablen-Management
 - matplotlib für Beispiele und Entwicklung
 
-## Einrichtung der Python-Umgebung
-Das Tool kann beispielweise auf einem (virtuellen) Server, NAS oder (idealerweise permanent laufenden) Rechner installiert werden. Systemanforderungen und Einrichtungsaufwand variieren je nach Umfang der genutzten Funktionen. Für die 
-Grundfunktionalität (Abruf und Archivierung von Verfügbarkeitsinformationen) sind lediglich die Pakete erforderlich, die in der Datei `mylibrary.py` importiert werden. Nur im Falle der App sind weitere Pakete (z.B. `dash`) zu installieren sowie ein Webserver (z.B. nginx) und ggf. ein Applikationsserver (z.B. uWSGi). Weitere Details zur Funktionsweise und Konfiguration finden sich weiter unten. Allgemein empfiehlt sich die Erstellung einer virtuellen Python-Umgebung. Dies geschieht beispielsweise unter Ubuntu 24.04 LTS mit dem User `lukas` wie folgt:
-
-```bash
-sudo apt update && sudo apt upgrade
-sudo apt install python3-venv
-python3 -m venv /home/lukas/myenv
-source /home/lukas/myenv/bin/activate
-pip install -r requirements.txt
-```
-
 ## Konfiguration
+
+Für detaillierte Konfigurationsanweisungen siehe [INSTALL.md](INSTALL.md).
 
 Die Anwendung kann über mehrere Konfigurationsdateien konfiguriert werden:
 
 1. **config.yaml** - Hauptkonfigurationsdatei (empfohlen)
 2. **myconfig.py** - Python-basierte Konfiguration (Fallback)
 3. **.env** - Umgebungsvariablen für sensible Daten
+4. **notifications.json** - Benachrichtigungsprofile
 
-### config.yaml
-
-Die Hauptkonfigurationsdatei `config.yaml` ermöglicht die Konfiguration aller Aspekte der Anwendung:
-
-```yaml
-# Footer configuration
-footer:
-  home:
-    label: "Home"
-    link: "https://lukas-schmidt-russnak.de"
-    enabled: true
-    new_tab: true
-  documentation:
-    label: "Dokumentation"
-    link: "https://github.com/lsr-dev/ti-monitoring"
-    enabled: true
-    new_tab: true
-  privacy:
-    label: "Datenschutz"
-    link: "https://lukas-schmidt-russnak.de/datenschutz/"
-    enabled: true
-    new_tab: true
-  imprint:
-    label: "Impressum"
-    link: "https://lukas-schmidt-russnak.de/impressum/"
-    enabled: true
-    new_tab: true
-  copyright:
-    text: "© Lukas Schmidt-Russnak"
-    enabled: true
-
-# Core configuration
-core:
-  # URL for API
-  url: "https://ti-lage.prod.ccs.gematik.solutions/lageapi/v1/tilage/bu/PU"
-  
-  # Path to hdf5 file for saving the availability data 
-  file_name: "data.hdf5"
-  
-  # Home URL for dash app
-  home_url: "https://ti-monitoring.lukas-schmidt-russnak.de"
-  
-  # Time frame for statistics in web app
-  stats_delta_hours: 12
-  
-  # Configuration file for notifications
-  notifications_config_file: "notifications.json"
-  
-  # Header configuration
-  header:
-    # Page title
-    title: "TI-Monitoring"
-    
-    # Logo configuration
-    logo:
-      # Path to logo image
-      path: "assets/logo.svg"
-      
-      # Logo alt text
-      alt: "TI-Monitoring Logo"
-      
-      # Logo height (in pixels)
-      height: 50
-      
-      # Logo width (in pixels)
-      width: 50
-```
-
-### myconfig.py
-
-Die Datei `myconfig.py` dient als Fallback für die Konfiguration und enthält Standardwerte:
-
-```python
-# URL for API
-url = "https://ti-lage.prod.ccs.gematik.solutions/lageapi/v1/tilage/bu/PU"
-
-# path to hdf5 file for saving the availability data
-file_name = "data.hdf5"
-
-# switching email notifications on/off
-notifications = False
-
-# configuration for notifications
-notifications_config_file = 'notifications.json'
-
-# smtp settings for email notifications
-smtp_settings = {
-    'host' : '********',
-    'port' : 587,
-    'user' : '********',
-    'password' : '********',
-    'from' : '********'
-}
-
-# home url for dash app
-home_url = 'https://ti-monitoring.lukas-schmidt-russnak.de'
-
-# time frame for statistics in web app
-stats_delta_hours = 12
-```
-
-### .env
-
-Die `.env` Datei wird für sensible Konfigurationsdaten wie Passwörter verwendet:
-
-```env
-# Password for notification settings page
-NOTIFICATION_SETTINGS_PASSWORD=your_secure_password_here
-```
+Alle Konfigurationsdateien basieren auf den entsprechenden `.example` Dateien, die Sie kopieren und anpassen müssen.
 
 ## Abruf und Archivierung
 Abruf und Archivierung erfolgen durch das Skript `cron.py`, das alle fünf Minuten durch einen Cronjob ausgeführt werden sollte. Um möglichst die aktuellsten Daten abzugreifen,  empfiehlt sich ein minimaler Versatz zum Bereitstellungszeitpunkt der Daten:
@@ -246,54 +144,20 @@ In der neuesten Version wurde ein Fehler behoben, bei dem der Bestätigungsdialo
 
 ## Docker Deployment
 
-Das TI-Monitoring kann auch als Docker-Container betrieben werden. Dazu ist ein Dockerfile sowie eine docker-compose.yml Datei im Projekt enthalten.
+Für detaillierte Docker-Installationsanweisungen siehe [INSTALL.md](INSTALL.md).
 
-### Docker Compose
+Das TI-Monitoring kann als Docker-Container betrieben werden. Dazu ist ein Dockerfile sowie eine docker-compose.yml Datei im Projekt enthalten.
 
-Die einfachste Methode ist die Verwendung von Docker Compose:
-
+### Schnellstart
 ```bash
-docker-compose up -d
+docker compose up -d
 ```
 
-### Gunicorn Web Server
-
-Die Webanwendung wird nun standardmäßig mit Gunicorn betrieben, einem produktionsreifen WSGI-Server. Die Docker-Konfiguration startet automatisch den Gunicorn-Server mit 4 Worker-Prozessen.
-
-### Nginx Reverse Proxy with Let's Encrypt
-
-Das Projekt enthält nun auch eine nginx-Konfiguration mit Let's Encrypt-Unterstützung für automatische HTTPS-Zertifikate. Die Konfiguration erfolgt über die `.env` Datei:
-
-```env
-SSL_DOMAIN=ti-monitoring.example.com
-SSL_EMAIL=admin@example.com
-```
-
-Nach dem Starten der Container mit `docker-compose up -d` muss das init-letsencrypt.sh Skript ausgeführt werden, um die ersten Zertifikate zu erhalten:
-
-```bash
-./init-letsencrypt.sh
-```
-
-Das Skript liest die Domain und E-Mail aus der `.env` Datei und fordert automatisch ein Zertifikat von Let's Encrypt an.
-
-### Environment Variables
-
-Für die Konfiguration im Docker-Betrieb sollten Umgebungsvariablen verwendet werden:
-
-- `NOTIFICATIONS_ENABLED`: Aktiviert/Deaktiviert Benachrichtigungen
-- `NOTIFICATION_SETTINGS_PASSWORD`: Passwort für die Benachrichtigungseinstellungen
-- `TI_API_URL`: URL der gematik API
-- `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`: Für SMTP-Konfiguration (wenn verwendet)
-
-### Volumes
-
-Folgende Volumes sollten gemountet werden um Datenpersistenz zu gewährleisten:
-
-- `/app/data.hdf5`: Die Datenbankdatei
-- `/app/config.yaml`: Die Konfigurationsdatei
-- `/app/notifications.json`: Die Benachrichtigungskonfiguration
-- `/app/.env`: Die Umgebungsvariablendatei
+### Features
+- **Gunicorn Web Server**: Produktionsreifer WSGI-Server mit 2 Worker-Prozessen
+- **Nginx Reverse Proxy**: Mit Let's Encrypt-Unterstützung für automatische HTTPS-Zertifikate
+- **Datenpersistenz**: Alle wichtigen Dateien werden als Volumes gemountet
+- **Entwicklungsmodus**: `docker-compose-dev.yml` für lokale Entwicklung
 
 ## Web-App
 Der aktuelle Status verschiedener Komponenten kann optional auch in Form einer Web-App auf Basis des [Dash-Frameworks](https://dash.plotly.com) bereitgestellt werden. Die App kann z.B. in Kombination mit uWSGi und nginx (ähnlich [wie hier beschrieben](https://carpiero.medium.com/host-a-dashboard-using-python-dash-and-linux-in-your-own-linux-server-85d891e960bc) veröffentlicht werden.

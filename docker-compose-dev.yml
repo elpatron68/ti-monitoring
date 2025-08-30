@@ -1,0 +1,21 @@
+services:
+  ti-monitoring-web:
+    build: .
+    volumes:
+      - ./config.yaml:/app/config.yaml
+      - ./data:/app/data
+    environment:
+      - PYTHONPATH=/app
+    restart: unless-stopped
+    ports:
+      - "8050:8050"
+
+  ti-monitoring-cron:
+    build: .
+    volumes:
+      - ./config.yaml:/app/config.yaml
+      - ./data:/app/data
+    environment:
+      - PYTHONPATH=/app
+    command: ["python", "-u", "cron.py"]
+    restart: unless-stopped
