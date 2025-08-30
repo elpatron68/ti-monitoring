@@ -2,6 +2,7 @@
 from mylibrary import *
 import yaml
 import os
+import time
 
 def load_config():
     """Load configuration from YAML file"""
@@ -39,19 +40,38 @@ def main():
     print(f"Using file: {config_file_name}")
     print(f"Using URL: {config_url}")
     
-    initialize_data_file(config_file_name)
-    update_file(config_file_name, config_url)
-    
-    # Check if notifications are enabled
-    if config_notifications_file and os.path.exists(config_notifications_file):
+    # Main loop - run every 5 minutes
+    while True:
         try:
-            with open(config_notifications_file, 'r') as f:
-                notifications_config = yaml.safe_load(f)
-            # notifications_config is a list, so we check if it's not empty instead of looking for 'enabled'
-            if notifications_config and len(notifications_config) > 0:
-                send_apprise_notifications(config_file_name, config_notifications_file, config_home_url)
+            print(f"Running cron job at {time.strftime('%Y-%m-%d %H:%M:%S')}")
+            
+            initialize_data_file(config_file_name)
+            update_file(config_file_name, config_url)
+            
+            # Check if notifications are enabled
+            if config_notifications_file and os.path.exists(config_notifications_file):
+                try:
+                    with open(config_notifications_file, 'r') as f:
+                        notifications_config = yaml.safe_load(f)
+                    # notifications_config is a list, so we check if it's not empty instead of looking for 'enabled'
+                    if notifications_config and len(notifications_config) > 0:
+                        send_apprise_notifications(config_file_name, config_notifications_file, config_home_url)
+                except Exception as e:
+                    print(f"Error with notifications: {e}")
+            
+            print(f"Cron job completed at {time.strftime('%Y-%m-%d %H:%M:%S')}")
+            print("Sleeping for 5 minutes...")
+            
+            # Sleep for 5 minutes (300 seconds)
+            time.sleep(300)
+            
+        except KeyboardInterrupt:
+            print("Cron job interrupted, exiting...")
+            break
         except Exception as e:
-            print(f"Error with notifications: {e}")
+            print(f"Error in cron job: {e}")
+            print("Sleeping for 5 minutes before retry...")
+            time.sleep(300)
 
 if __name__ == '__main__':
     main()
