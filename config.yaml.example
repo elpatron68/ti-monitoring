@@ -37,6 +37,11 @@ core:
   # Configuration file for notifications
   notifications_config_file: "notifications.json"
   
+  # OTP delivery (Apprise URL Template). Use {email} placeholder for recipient address.
+  # Example (Resend): resend://TOKEN:from@example.com/{email}
+  # Example (SMTP):  mailto://user:pass@host:587/{email}
+  otp_apprise_url_template: "resend://YOUR_TOKEN:from@example.com/{email}"
+  
   # Enable/disable notifications globally
   notifications_enabled: false
   
