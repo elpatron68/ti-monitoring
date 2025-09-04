@@ -389,11 +389,102 @@ def api_profile_detail(profile_id: int):
 
 @server.route('/api/notifications/destinations', methods=['GET','POST'])
 def api_destinations():
-    return make_response(jsonify({'error': 'Not Implemented'}), 501)
+    session_id = request.cookies.get('session_id')
+    user_id = get_user_id_by_session(session_id) if session_id else None
+    if not user_id:
+        return make_response(jsonify({'error': 'unauthorized'}), 401)
+    try:
+        with get_db_conn() as conn, conn.cursor() as cur:
+            if request.method == 'GET':
+                profile_id = request.args.get('profile_id', type=int)
+                if not profile_id:
+                    return make_response(jsonify({'error': 'profile_id required'}), 400)
+                # ensure ownership
+                cur.execute("SELECT 1 FROM notification_profiles WHERE id=%s AND user_id=%s", (profile_id, user_id))
+                if not cur.fetchone():
+                    return make_response(jsonify({'error': 'not_found'}), 404)
+                cur.execute(
+                    "SELECT id, provider, config_encrypted, created_at FROM destinations WHERE profile_id=%s ORDER BY id DESC",
+                    (profile_id,)
+                )
+                rows = cur.fetchall()
+                items = []
+                for r in rows:
+                    # MVP: config redacted
+                    items.append({'id': r[0], 'provider': r[1], 'created_at': r[3].isoformat() if r[3] else None, 'config_preview': True})
+                return jsonify(items)
+            else:
+                data = request.get_json(force=True) or {}
+                profile_id = data.get('profile_id')
+                provider = (data.get('provider') or '').strip()
+                cfg = data.get('config') or {}
+                if not profile_id or not provider:
+                    return make_response(jsonify({'error': 'invalid_payload'}), 400)
+                # ensure ownership
+                cur.execute("SELECT 1 FROM notification_profiles WHERE id=%s AND user_id=%s", (profile_id, user_id))
+                if not cur.fetchone():
+                    return make_response(jsonify({'error': 'not_found'}), 404)
+                import json as _json
+                payload = _json.dumps(cfg, ensure_ascii=False).encode('utf-8')
+                cur.execute(
+                    "INSERT INTO destinations(profile_id, provider, config_encrypted) VALUES(%s,%s,%s) RETURNING id",
+                    (profile_id, provider, payload)
+                )
+                did = cur.fetchone()[0]
+                conn.commit()
+                return jsonify({'id': did, 'provider': provider})
+    except Exception as e:
+        return make_response(jsonify({'error': str(e)}), 500)
 
 @server.route('/api/notifications/destinations/<int:destination_id>', methods=['GET','PUT','DELETE'])
 def api_destination_detail(destination_id: int):
-    return make_response(jsonify({'error': 'Not Implemented'}), 501)
+    session_id = request.cookies.get('session_id')
+    user_id = get_user_id_by_session(session_id) if session_id else None
+    if not user_id:
+        return make_response(jsonify({'error': 'unauthorized'}), 401)
+    try:
+        with get_db_conn() as conn, conn.cursor() as cur:
+            # ensure ownership via join
+            base_sql = (
+                "SELECT d.id, d.profile_id, p.user_id, d.provider, d.config_encrypted, d.created_at "
+                "FROM destinations d JOIN notification_profiles p ON d.profile_id=p.id WHERE d.id=%s"
+            )
+            cur.execute(base_sql, (destination_id,))
+            r = cur.fetchone()
+            if not r or str(r[2]) != str(user_id):
+                return make_response(jsonify({'error': 'not_found'}), 404)
+            if request.method == 'GET':
+                import json as _json
+                cfg = {}
+                try:
+                    cfg = _json.loads((r[4] or b'{}').decode('utf-8'))
+                except Exception:
+                    cfg = {}
+                return jsonify({'id': r[0], 'profile_id': r[1], 'provider': r[3], 'config': cfg, 'created_at': r[5].isoformat() if r[5] else None})
+            elif request.method == 'PUT':
+                data = request.get_json(force=True) or {}
+                provider = data.get('provider')
+                cfg = data.get('config')
+                sets = []
+                vals = []
+                if provider:
+                    sets.append('provider=%s'); vals.append(provider)
+                if cfg is not None:
+                    import json as _json
+                    payload = _json.dumps(cfg, ensure_ascii=False).encode('utf-8')
+                    sets.append('config_encrypted=%s'); vals.append(payload)
+                if not sets:
+                    return jsonify({'status': 'noop'})
+                vals.append(destination_id)
+                cur.execute(f"UPDATE destinations SET {', '.join(sets)} WHERE id=%s", tuple(vals))
+                conn.commit()
+                return jsonify({'status': 'ok'})
+            else:
+                cur.execute("DELETE FROM destinations WHERE id=%s", (destination_id,))
+                conn.commit()
+                return jsonify({'status': 'ok'})
+    except Exception as e:
+        return make_response(jsonify({'error': str(e)}), 500)
 
 if __name__ == '__main__':
     app.run(debug=False)
