@@ -190,6 +190,37 @@ def delete_profile_from_db(email, profile_id):
         print(f"Fehler beim Löschen des Profils: {e}")
         return {'success': False, 'error': str(e)}
 
+def update_profile_in_db(email, profile_id, name, urls, profile_type='whitelist', selected_cis=None):
+    """Aktualisiert ein vorhandenes Profil in der Datenbank"""
+    try:
+        email_hash = hash_email_with_salt(email)
+        
+        with get_db_conn() as conn, conn.cursor() as cur:
+            # Suche User
+            cur.execute("SELECT id FROM users WHERE email_hash=%s AND deleted_at IS NULL", (email_hash,))
+            row = cur.fetchone()
+            if not row:
+                return {'success': False, 'error': 'User nicht gefunden'}
+            user_id = row[0]
+            
+            # Verschlüssele Profil-Daten
+            config_data = {'urls': urls}
+            if selected_cis:
+                config_data['selected_cis'] = selected_cis
+            config_encrypted = encrypt_config_json(config_data)
+            
+            # Profil aktualisieren
+            cur.execute(
+                "UPDATE notification_profiles SET name=%s, type=%s, config_encrypted=%s WHERE id=%s AND user_id=%s",
+                (name, profile_type, config_encrypted, profile_id, user_id)
+            )
+            conn.commit()
+            
+            return {'success': True, 'message': f'Profil "{name}" wurde erfolgreich aktualisiert!'}
+    except Exception as e:
+        print(f"Fehler beim Aktualisieren des Profils: {e}")
+        return {'success': False, 'error': str(e)}
+
 def serve_layout():
     return html.Div([
         
@@ -210,6 +241,9 @@ def serve_layout():
         
         # CI filter text store
         dcc.Store(id='ci-filter-text', data=''),
+        
+        # Edit profile ID store
+        dcc.Store(id='edit-profile-id', data=None),
         
         # Main content
         html.Div([
@@ -266,7 +300,7 @@ def serve_layout():
                     
                     # Profile form
                     html.Div(id='profile-form', style={'display': 'none'}, children=[
-                        html.H5('Profil erstellen'),
+                        html.H5(id='profile-form-title', children='Profil erstellen'),
                         html.Div([
                             html.Label('Profilname:', className='form-label'),
                             dcc.Input(
@@ -620,6 +654,9 @@ def handle_profile_deletion(n_clicks_list, button_ids_list, auth_data):
                     html.P(f"URLs: {', '.join(profile['urls'])}"),
                     html.P(f"Erstellt: {profile['created_at']}"),
                     html.Div(className='button-group', children=[
+                        html.Button('Bearbeiten', 
+                                  id={'type': 'edit-profile-button', 'index': profile["id"]},
+                                  className='button'),
                         html.Button('Löschen', 
                                   id={'type': 'delete-profile-button', 'index': profile["id"]},
                                   className='button')
@@ -633,27 +670,91 @@ def handle_profile_deletion(n_clicks_list, button_ids_list, auth_data):
         print(f"Error deleting profile: {result.get('error', 'Unknown error')}")
         return no_update
 
+# Profile edit callback - handles profile editing
+@callback(
+    [Output('profile-form', 'style', allow_duplicate=True),
+     Output('profile-form-title', 'children', allow_duplicate=True),
+     Output('profile-name', 'value', allow_duplicate=True),
+     Output('profile-type', 'value', allow_duplicate=True),
+     Output('profile-urls', 'value', allow_duplicate=True),
+     Output('selected-cis-data', 'data', allow_duplicate=True),
+     Output('edit-profile-id', 'data', allow_duplicate=True)],
+    Input({'type': 'edit-profile-button', 'index': ALL}, 'n_clicks'),
+    State({'type': 'edit-profile-button', 'index': ALL}, 'id'),
+    State('profiles-store', 'data'),
+    prevent_initial_call=True
+)
+def handle_profile_edit(n_clicks_list, button_ids_list, profiles_data):
+    # Check if any button was clicked
+    if not any(n_clicks_list):
+        return no_update, no_update, no_update, no_update, no_update, no_update, no_update
+    
+    # Find which button was clicked (the one with n_clicks > 0)
+    clicked_index = None
+    for i, n_clicks in enumerate(n_clicks_list):
+        if n_clicks and n_clicks > 0:
+            clicked_index = i
+            break
+    
+    if clicked_index is None:
+        return no_update, no_update, no_update, no_update, no_update, no_update, no_update
+    
+    # Get the profile ID from the clicked button
+    clicked_button_id = button_ids_list[clicked_index]
+    profile_id = clicked_button_id['index']
+    
+    # Find the profile in profiles_data
+    profile = None
+    for p in profiles_data:
+        if p['id'] == profile_id:
+            profile = p
+            break
+    
+    if profile is None:
+        return no_update, no_update, no_update, no_update, no_update, no_update, no_update
+    
+    # Prepare form values
+    profile_name = profile.get('name', '')
+    profile_type = profile.get('type', 'whitelist')
+    profile_urls = '\n'.join(profile.get('urls', []))
+    selected_cis = profile.get('selected_cis', [])
+    
+    return (
+        {'display': 'block'},
+        'Profil bearbeiten',
+        profile_name,
+        profile_type,
+        profile_urls,
+        selected_cis,
+        profile_id
+    )
+
 # Profiles callback - handles display, adding, editing, and deleting profiles
 @callback(
     [Output('profiles-container', 'children'),
      Output('profile-form', 'style'),
+     Output('profile-form-title', 'children'),
      Output('profile-name', 'value'),
+     Output('profile-type', 'value'),
      Output('profile-urls', 'value'),
      Output('profiles-store', 'data'),
-     Output('selected-cis-data', 'data')],
+     Output('selected-cis-data', 'data'),
+     Output('edit-profile-id', 'data')],
     [Input('auth-status', 'data'),
      Input('add-profile-button', 'n_clicks'),
      Input('cancel-profile-button', 'n_clicks'),
      Input('save-profile-button', 'n_clicks')],
     [State('profile-form', 'style'),
+     State('profile-form-title', 'children'),
      State('profile-name', 'value'),
      State('profile-urls', 'value'),
      State('profile-type', 'value'),
      State('profiles-store', 'data'),
-     State('selected-cis-data', 'data')],
+     State('selected-cis-data', 'data'),
+     State('edit-profile-id', 'data')],
     prevent_initial_call=False
 )
-def handle_profiles(auth_data, add_clicks, cancel_clicks, save_clicks, form_style, profile_name, profile_urls, profile_type, profiles_data, selected_cis):
+def handle_profiles(auth_data, add_clicks, cancel_clicks, save_clicks, form_style, form_title, profile_name, profile_urls, profile_type, profiles_data, selected_cis, edit_profile_id):
     ctx = dash.callback_context
     print(f"DEBUG: handle_profiles called with triggered: {ctx.triggered}")
     
@@ -679,17 +780,20 @@ def handle_profiles(auth_data, add_clicks, cancel_clicks, save_clicks, form_styl
                         html.P(f"URLs: {', '.join(profile['urls'])}"),
                         html.P(f"Erstellt: {profile['created_at']}"),
                         html.Div(className='button-group', children=[
+                            html.Button('Bearbeiten', 
+                                      id={'type': 'edit-profile-button', 'index': profile["id"]},
+                                      className='button'),
                             html.Button('Löschen', 
                                       id={'type': 'delete-profile-button', 'index': profile["id"]},
                                       className='button')
                         ])
                     ], className='box'))
                 
-                return profile_list, {'display': 'none'}, '', '', db_profiles, []
+                return profile_list, {'display': 'none'}, 'Profil erstellen', '', 'whitelist', '', db_profiles, [], None
             else:
-                return [], {'display': 'none'}, '', '', [], []
+                return [], {'display': 'none'}, 'Profil erstellen', '', 'whitelist', '', [], [], None
         else:
-            return [], {'display': 'none'}, '', '', [], []
+            return [], {'display': 'none'}, 'Profil erstellen', '', 'whitelist', '', [], [], None
     
     triggered_id = ctx.triggered[0]['prop_id'].split('.')[0]
     print(f"DEBUG: Profile callback triggered by: {triggered_id}")
@@ -698,7 +802,7 @@ def handle_profiles(auth_data, add_clicks, cancel_clicks, save_clicks, form_styl
     if triggered_id == 'auth-status':
         print(f"DEBUG: Auth status changed: {auth_data}")
         if not auth_data or not auth_data.get('authenticated', False):
-            return [], {'display': 'none'}, '', '', [], []
+            return [], {'display': 'none'}, 'Profil erstellen', '', 'whitelist', '', [], [], None
         
         # Load profiles from database using email from auth data
         email = auth_data.get('email', '') if auth_data else ''
@@ -719,33 +823,36 @@ def handle_profiles(auth_data, add_clicks, cancel_clicks, save_clicks, form_styl
                     html.P(f"URLs: {', '.join(profile['urls'])}"),
                     html.P(f"Erstellt: {profile['created_at']}"),
                     html.Div(className='button-group', children=[
+                        html.Button('Bearbeiten', 
+                                      id={'type': 'edit-profile-button', 'index': profile["id"]},
+                                      className='button'),
                         html.Button('Löschen', 
-                                  id={'type': 'delete-profile-button', 'index': profile["id"]},
-                                  className='button')
+                                      id={'type': 'delete-profile-button', 'index': profile["id"]},
+                                      className='button')
                     ])
                 ], className='box'))
             
-            return profile_list, {'display': 'none'}, '', '', db_profiles, []
+            return profile_list, {'display': 'none'}, 'Profil erstellen', '', 'whitelist', '', db_profiles, [], None
         else:
-            return [], {'display': 'none'}, '', '', [], []
+            return [], {'display': 'none'}, 'Profil erstellen', '', 'whitelist', '', [], [], None
     
     # Handle save profile button clicks
     if triggered_id == 'save-profile-button' and save_clicks and save_clicks > 0:
         print(f"DEBUG: Save profile triggered, auth_data: {auth_data}")
         if not auth_data or not auth_data.get('authenticated', False):
             print("DEBUG: Not authenticated, cannot save profile")
-            return [], {'display': 'none'}, '', '', [], []
+            return [], {'display': 'none'}, 'Profil erstellen', '', 'whitelist', '', [], [], None
         
         email = auth_data.get('email', '') if auth_data else ''
         print(f"DEBUG: Email from auth_data: {email}")
         if not email:
             print("DEBUG: No email found in auth_data")
-            return [], {'display': 'none'}, '', '', [], []
+            return [], {'display': 'none'}, 'Profil erstellen', '', 'whitelist', '', [], [], None
         
         # Validate inputs
         if not profile_name or not profile_name.strip():
             print("DEBUG: No profile name provided")
-            return [], {'display': 'none'}, '', '', [], []
+            return [], {'display': 'none'}, 'Profil erstellen', '', 'whitelist', '', [], [], None
         
         # Parse URLs
         urls = []
@@ -753,8 +860,15 @@ def handle_profiles(auth_data, add_clicks, cancel_clicks, save_clicks, form_styl
             urls = [url.strip() for url in profile_urls.split('\n') if url.strip()]
         
         print(f"DEBUG: Saving profile '{profile_name.strip()}' with {len(urls)} URLs and {len(selected_cis or [])} CIs for email {email}")
-        # Save to database
-        result = save_profile_to_db(email, profile_name.strip(), urls, profile_type or 'whitelist', selected_cis)
+        
+        # Check if we're editing an existing profile
+        if edit_profile_id:
+            # Update existing profile
+            result = update_profile_in_db(email, edit_profile_id, profile_name.strip(), urls, profile_type or 'whitelist', selected_cis)
+        else:
+            # Save new profile
+            result = save_profile_to_db(email, profile_name.strip(), urls, profile_type or 'whitelist', selected_cis)
+        
         print(f"DEBUG: Save result: {result}")
         if result['success']:
             # Reload profiles from database
@@ -773,31 +887,33 @@ def handle_profiles(auth_data, add_clicks, cancel_clicks, save_clicks, form_styl
                         html.P(f"URLs: {', '.join(profile['urls'])}"),
                         html.P(f"Erstellt: {profile['created_at']}"),
                         html.Div(className='button-group', children=[
+                            html.Button('Bearbeiten', 
+                                      id={'type': 'edit-profile-button', 'index': profile["id"]},
+                                      className='button'),
                             html.Button('Löschen', 
                                       id={'type': 'delete-profile-button', 'index': profile["id"]},
                                       className='button')
                         ])
                     ], className='box'))
                 
-                return profile_list, {'display': 'none'}, '', '', db_profiles, []
+                return profile_list, {'display': 'none'}, 'Profil erstellen', '', 'whitelist', '', db_profiles, [], None
             else:
-                return [], {'display': 'none'}, '', '', [], []
+                return [], {'display': 'none'}, 'Profil erstellen', '', 'whitelist', '', [], [], None
         else:
             print(f"DEBUG: Save failed: {result.get('error', 'Unknown error')}")
-            return [], {'display': 'none'}, '', '', [], []
+            return [], {'display': 'none'}, 'Profil erstellen', '', 'whitelist', '', [], [], None
     
     # Handle add profile button clicks
     if triggered_id == 'add-profile-button' and add_clicks and add_clicks > 0:
         print("DEBUG: Add profile button clicked")
-        return [], {'display': 'block'}, '', '', [], []
+        return no_update, {'display': 'block'}, 'Profil erstellen', '', 'whitelist', '', no_update, [], None
     
     # Handle cancel profile button clicks
     if triggered_id == 'cancel-profile-button' and cancel_clicks and cancel_clicks > 0:
         print("DEBUG: Cancel profile button clicked")
-        return [], {'display': 'none'}, '', '', [], []
+        return no_update, {'display': 'none'}, 'Profil erstellen', '', 'whitelist', '', no_update, [], None
     
-    return no_update, no_update, no_update, no_update, no_update, no_update
-
+    return no_update, no_update, no_update, no_update, no_update, no_update, no_update, no_update, no_update
 
 # UI visibility callback
 @callback(
