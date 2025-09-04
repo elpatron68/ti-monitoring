@@ -145,6 +145,63 @@ def setup_timescaledb_retention(keep_days: int = 185) -> None:
         sql = f"SELECT add_retention_policy('measurements', INTERVAL '{int(keep_days)} days', if_not_exists => TRUE);"
         cur.execute(sql)
 
+def init_user_notifications_schema() -> None:
+    """Erstellt Tabellen für Benutzer, OTP, Sessions und Notification-Profile (idempotent)."""
+    with get_db_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+
+            CREATE TABLE IF NOT EXISTS users (
+              id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+              email TEXT UNIQUE NOT NULL,
+              created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+              deleted_at TIMESTAMPTZ
+            );
+
+            CREATE TABLE IF NOT EXISTS user_otps (
+              id BIGSERIAL PRIMARY KEY,
+              user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+              code_hash TEXT NOT NULL,
+              expires_at TIMESTAMPTZ NOT NULL,
+              consumed_at TIMESTAMPTZ
+            );
+
+            CREATE TABLE IF NOT EXISTS sessions (
+              id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+              user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+              issued_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+              expires_at TIMESTAMPTZ,
+              revoked_at TIMESTAMPTZ,
+              user_agent TEXT,
+              ip TEXT
+            );
+
+            CREATE TABLE IF NOT EXISTS notification_profiles (
+              id BIGSERIAL PRIMARY KEY,
+              user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+              name TEXT NOT NULL,
+              type TEXT NOT NULL CHECK (type IN ('whitelist','blacklist')),
+              created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            );
+
+            CREATE TABLE IF NOT EXISTS notification_profile_cis (
+              profile_id BIGINT NOT NULL REFERENCES notification_profiles(id) ON DELETE CASCADE,
+              ci TEXT NOT NULL,
+              PRIMARY KEY (profile_id, ci)
+            );
+
+            CREATE TABLE IF NOT EXISTS destinations (
+              id BIGSERIAL PRIMARY KEY,
+              profile_id BIGINT NOT NULL REFERENCES notification_profiles(id) ON DELETE CASCADE,
+              provider TEXT NOT NULL,
+              config_encrypted BYTEA NOT NULL,
+              created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            );
+            """
+        )
+        conn.commit()
+
 def get_timescaledb_ci_data() -> pd.DataFrame:
     """Lädt CI-Daten aus TimescaleDB für Statistiken."""
     with get_db_conn() as conn:

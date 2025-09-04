@@ -5,7 +5,7 @@ import yaml
 import os
 import functools
 import time
-from flask import jsonify
+from flask import jsonify, request, make_response
 import psutil
 import gc
 
@@ -256,6 +256,36 @@ def health_check():
             "error": f"Health check failed: {str(e)}"
         }
         return jsonify(error_data), 503
+
+# --- MVP API stubs (Auth & Notifications) ---
+
+@server.route('/api/auth/request_otp', methods=['POST'])
+def api_request_otp():
+    return make_response(jsonify({'error': 'Not Implemented'}), 501)
+
+@server.route('/api/auth/verify_otp', methods=['POST'])
+def api_verify_otp():
+    return make_response(jsonify({'error': 'Not Implemented'}), 501)
+
+@server.route('/api/account', methods=['DELETE'])
+def api_delete_account():
+    return make_response(jsonify({'error': 'Not Implemented'}), 501)
+
+@server.route('/api/notifications/profiles', methods=['GET','POST'])
+def api_profiles():
+    return make_response(jsonify({'error': 'Not Implemented'}), 501)
+
+@server.route('/api/notifications/profiles/<int:profile_id>', methods=['GET','PUT','DELETE'])
+def api_profile_detail(profile_id: int):
+    return make_response(jsonify({'error': 'Not Implemented'}), 501)
+
+@server.route('/api/notifications/destinations', methods=['GET','POST'])
+def api_destinations():
+    return make_response(jsonify({'error': 'Not Implemented'}), 501)
+
+@server.route('/api/notifications/destinations/<int:destination_id>', methods=['GET','PUT','DELETE'])
+def api_destination_detail(destination_id: int):
+    return make_response(jsonify({'error': 'Not Implemented'}), 501)
 
 if __name__ == '__main__':
     app.run(debug=False)
