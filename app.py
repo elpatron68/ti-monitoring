@@ -6,6 +6,7 @@ import os
 import functools
 import time
 from flask import jsonify, request, make_response
+import apprise
 import psutil
 import gc
 
@@ -271,8 +272,22 @@ def api_request_otp():
         except Exception:
             pass
         code = create_otp_for_user(email)
-        # MVP: Ausgabe im Log statt echter E-Mail
-        print(f"OTP for {email}: {code}")
+        # Versand per Apprise (konfigurierbar)
+        core_cfg = load_core_config()
+        otp_tpl = (core_cfg or {}).get('otp_apprise_url_template')
+        if not otp_tpl:
+            # Dev-Fallback (Resend): resend://TOKEN:from@example.com/{email}
+            otp_tpl = 'resend://REDACTED:ti-mon@ypex.online/{email}'
+        apprise_url = otp_tpl.replace('{email}', email)
+        apobj = apprise.Apprise()
+        if apobj.add(apprise_url):
+            apobj.notify(
+                title='Ihr Anmeldecode',
+                body=f'Ihr Einmalcode lautet: {code} (gültig 10 Minuten)',
+                body_format=apprise.NotifyFormat.TEXT
+            )
+        else:
+            print(f"WARN: Konnte Apprise-URL nicht hinzufügen: {apprise_url}")
         return jsonify({'status': 'ok'})
     except Exception as e:
         return make_response(jsonify({'error': str(e)}), 500)
