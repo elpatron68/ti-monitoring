@@ -261,23 +261,131 @@ def health_check():
 
 @server.route('/api/auth/request_otp', methods=['POST'])
 def api_request_otp():
-    return make_response(jsonify({'error': 'Not Implemented'}), 501)
+    try:
+        data = request.get_json(force=True) or {}
+        email = (data.get('email') or '').strip().lower()
+        if not email:
+            return make_response(jsonify({'error': 'email required'}), 400)
+        try:
+            init_user_notifications_schema()
+        except Exception:
+            pass
+        code = create_otp_for_user(email)
+        # MVP: Ausgabe im Log statt echter E-Mail
+        print(f"OTP for {email}: {code}")
+        return jsonify({'status': 'ok'})
+    except Exception as e:
+        return make_response(jsonify({'error': str(e)}), 500)
 
 @server.route('/api/auth/verify_otp', methods=['POST'])
 def api_verify_otp():
-    return make_response(jsonify({'error': 'Not Implemented'}), 501)
+    try:
+        data = request.get_json(force=True) or {}
+        email = (data.get('email') or '').strip().lower()
+        code = (data.get('code') or '').strip()
+        if not email or not code:
+            return make_response(jsonify({'error': 'email and code required'}), 400)
+        session_id = verify_otp_and_create_session(email, code)
+        if not session_id:
+            return make_response(jsonify({'error': 'invalid_or_expired_code'}), 401)
+        resp = make_response(jsonify({'status': 'ok'}))
+        resp.set_cookie('session_id', session_id, httponly=True, samesite='Lax')
+        return resp
+    except Exception as e:
+        return make_response(jsonify({'error': str(e)}), 500)
 
 @server.route('/api/account', methods=['DELETE'])
 def api_delete_account():
-    return make_response(jsonify({'error': 'Not Implemented'}), 501)
+    try:
+        session_id = request.cookies.get('session_id')
+        user_id = get_user_id_by_session(session_id) if session_id else None
+        if not user_id:
+            return make_response(jsonify({'error': 'unauthorized'}), 401)
+        with get_db_conn() as conn, conn.cursor() as cur:
+            cur.execute("UPDATE users SET deleted_at=NOW() WHERE id=%s", (user_id,))
+            conn.commit()
+        resp = make_response(jsonify({'status': 'ok'}))
+        resp.delete_cookie('session_id')
+        return resp
+    except Exception as e:
+        return make_response(jsonify({'error': str(e)}), 500)
 
 @server.route('/api/notifications/profiles', methods=['GET','POST'])
 def api_profiles():
-    return make_response(jsonify({'error': 'Not Implemented'}), 501)
+    session_id = request.cookies.get('session_id')
+    user_id = get_user_id_by_session(session_id) if session_id else None
+    if not user_id:
+        return make_response(jsonify({'error': 'unauthorized'}), 401)
+    try:
+        with get_db_conn() as conn, conn.cursor() as cur:
+            if request.method == 'GET':
+                cur.execute(
+                    "SELECT id, name, type, created_at FROM notification_profiles WHERE user_id=%s ORDER BY id DESC",
+                    (user_id,)
+                )
+                rows = cur.fetchall()
+                items = [
+                    {'id': r[0], 'name': r[1], 'type': r[2], 'created_at': r[3].isoformat() if r[3] else None}
+                    for r in rows
+                ]
+                return jsonify(items)
+            else:
+                data = request.get_json(force=True) or {}
+                name = (data.get('name') or '').strip()
+                ntype = (data.get('type') or 'whitelist').strip()
+                if not name or ntype not in ('whitelist','blacklist'):
+                    return make_response(jsonify({'error': 'invalid_payload'}), 400)
+                cur.execute(
+                    "INSERT INTO notification_profiles(user_id, name, type) VALUES(%s,%s,%s) RETURNING id",
+                    (user_id, name, ntype)
+                )
+                pid = cur.fetchone()[0]
+                conn.commit()
+                return jsonify({'id': pid, 'name': name, 'type': ntype})
+    except Exception as e:
+        return make_response(jsonify({'error': str(e)}), 500)
 
 @server.route('/api/notifications/profiles/<int:profile_id>', methods=['GET','PUT','DELETE'])
 def api_profile_detail(profile_id: int):
-    return make_response(jsonify({'error': 'Not Implemented'}), 501)
+    session_id = request.cookies.get('session_id')
+    user_id = get_user_id_by_session(session_id) if session_id else None
+    if not user_id:
+        return make_response(jsonify({'error': 'unauthorized'}), 401)
+    try:
+        with get_db_conn() as conn, conn.cursor() as cur:
+            if request.method == 'GET':
+                cur.execute(
+                    "SELECT id, name, type, created_at FROM notification_profiles WHERE id=%s AND user_id=%s",
+                    (profile_id, user_id)
+                )
+                r = cur.fetchone()
+                if not r:
+                    return make_response(jsonify({'error': 'not_found'}), 404)
+                return jsonify({'id': r[0], 'name': r[1], 'type': r[2], 'created_at': r[3].isoformat() if r[3] else None})
+            elif request.method == 'PUT':
+                data = request.get_json(force=True) or {}
+                name = (data.get('name') or '').strip()
+                ntype = (data.get('type') or '').strip()
+                if ntype and ntype not in ('whitelist','blacklist'):
+                    return make_response(jsonify({'error': 'invalid_payload'}), 400)
+                sets = []
+                vals = []
+                if name:
+                    sets.append('name=%s'); vals.append(name)
+                if ntype:
+                    sets.append('type=%s'); vals.append(ntype)
+                if not sets:
+                    return jsonify({'status': 'noop'})
+                vals.extend([profile_id, user_id])
+                cur.execute(f"UPDATE notification_profiles SET {', '.join(sets)} WHERE id=%s AND user_id=%s", tuple(vals))
+                conn.commit()
+                return jsonify({'status': 'ok'})
+            else:
+                cur.execute("DELETE FROM notification_profiles WHERE id=%s AND user_id=%s", (profile_id, user_id))
+                conn.commit()
+                return jsonify({'status': 'ok'})
+    except Exception as e:
+        return make_response(jsonify({'error': str(e)}), 500)
 
 @server.route('/api/notifications/destinations', methods=['GET','POST'])
 def api_destinations():

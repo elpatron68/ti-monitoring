@@ -4,8 +4,10 @@ from psycopg2.extras import execute_values
 import h5py
 import pandas as pd
 import yaml
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Optional
+import hashlib
+import secrets
 
 def load_config():
     """Load configuration from YAML file"""
@@ -201,6 +203,94 @@ def init_user_notifications_schema() -> None:
             """
         )
         conn.commit()
+
+def _hash_otp(code: str) -> str:
+    return hashlib.sha256(code.encode('utf-8')).hexdigest()
+
+def _generate_otp_code() -> str:
+    return f"{secrets.randbelow(1000000):06d}"
+
+def ensure_user(email: str) -> Optional[str]:
+    """Erzeugt oder liefert user.id für die E-Mail."""
+    with get_db_conn() as conn, conn.cursor() as cur:
+        cur.execute("SELECT id FROM users WHERE email=%s AND deleted_at IS NULL", (email,))
+        row = cur.fetchone()
+        if row:
+            return str(row[0])
+        cur.execute("INSERT INTO users(email) VALUES(%s) RETURNING id", (email,))
+        new_id = cur.fetchone()[0]
+        conn.commit()
+        return str(new_id)
+
+def create_otp_for_user(email: str, ttl_minutes: int = 10) -> str:
+    """Erstellt einen OTP-Code, speichert den Hash und gibt den Klartext zurück (per Mail zu senden)."""
+    user_id = ensure_user(email)
+    code = _generate_otp_code()
+    code_hash = _hash_otp(code)
+    expires_at = datetime.now(timezone.utc) + timedelta(minutes=ttl_minutes)
+    with get_db_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO user_otps(user_id, code_hash, expires_at) VALUES(%s,%s,%s)
+            """,
+            (user_id, code_hash, expires_at)
+        )
+        conn.commit()
+    return code
+
+def verify_otp_and_create_session(email: str, code: str, session_days: int = 30) -> Optional[str]:
+    """Verifiziert OTP und erzeugt eine Session. Liefert session.id oder None."""
+    with get_db_conn() as conn, conn.cursor() as cur:
+        cur.execute("SELECT id FROM users WHERE email=%s AND deleted_at IS NULL", (email,))
+        u = cur.fetchone()
+        if not u:
+            return None
+        user_id = u[0]
+        cur.execute(
+            """
+            SELECT id, code_hash, expires_at, consumed_at
+            FROM user_otps
+            WHERE user_id=%s
+            ORDER BY id DESC
+            LIMIT 1
+            """,
+            (user_id,)
+        )
+        row = cur.fetchone()
+        if not row:
+            return None
+        otp_id, code_hash, expires_at, consumed_at = row
+        now = datetime.now(timezone.utc)
+        if consumed_at is not None or expires_at is None or now > expires_at:
+            return None
+        if _hash_otp(code) != code_hash:
+            return None
+        # consume otp
+        cur.execute("UPDATE user_otps SET consumed_at=%s WHERE id=%s", (now, otp_id))
+        # create session
+        expires = now + timedelta(days=session_days)
+        cur.execute(
+            "INSERT INTO sessions(user_id, issued_at, expires_at) VALUES(%s,%s,%s) RETURNING id",
+            (user_id, now, expires)
+        )
+        session_id = cur.fetchone()[0]
+        conn.commit()
+        return str(session_id)
+
+def get_user_id_by_session(session_id: str) -> Optional[str]:
+    with get_db_conn() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT user_id, revoked_at, expires_at FROM sessions WHERE id=%s",
+            (session_id,)
+        )
+        row = cur.fetchone()
+        if not row:
+            return None
+        user_id, revoked_at, expires_at = row
+        now = datetime.now(timezone.utc)
+        if revoked_at is not None or (expires_at is not None and now > expires_at):
+            return None
+        return str(user_id)
 
 def get_timescaledb_ci_data() -> pd.DataFrame:
     """Lädt CI-Daten aus TimescaleDB für Statistiken."""
