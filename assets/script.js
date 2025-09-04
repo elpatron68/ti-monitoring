@@ -153,4 +153,46 @@ try {
             return { msg: 'Löschen fehlgeschlagen: ' + String(err), ok: false };
         });
     };
+    
+    // Profile deletion function - fixed version
+    ns["deleteProfile"] = function(n_clicks, button_id) {
+        // Check if the button was actually clicked
+        if (!n_clicks || n_clicks < 1) {
+            return window.dash_clientside.no_update;
+        }
+        
+        // Extract profile ID from button ID
+        // Button ID format: {"type":"delete-profile-button","index":PROFILE_ID}
+        try {
+            var buttonIdObj = JSON.parse(button_id);
+            var profileId = buttonIdObj.index;
+            
+            if (!profileId) {
+                return window.dash_clientside.no_update;
+            }
+            
+            // Confirm deletion
+            if (!confirm('Möchten Sie dieses Profil wirklich löschen?')) {
+                return window.dash_clientside.no_update;
+            }
+            
+            return fetch('/api/notifications/profiles/' + profileId, {
+                method: 'DELETE',
+                credentials: 'include',
+                headers: { 'Content-Type': 'application/json' }
+            }).then(function(resp) {
+                if (resp && resp.ok) {
+                    // Reload the page to refresh the profile list
+                    window.location.reload();
+                    return 'Profil gelöscht.';
+                } else {
+                    return 'Fehler beim Löschen des Profils.';
+                }
+            }).catch(function(err) {
+                return 'Fehler beim Löschen des Profils: ' + String(err);
+            });
+        } catch (e) {
+            return 'Fehler beim Verarbeiten der Anfrage: ' + String(e);
+        }
+    };
 })();

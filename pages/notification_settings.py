@@ -1,11 +1,12 @@
 import dash
-from dash import html, dcc, callback, Input, Output, State, no_update, clientside_callback, ClientsideFunction
+from dash import html, dcc, callback, Input, Output, State, no_update, clientside_callback, ClientsideFunction, ALL, ctx
 from mylibrary import *
 import os
 import json
 import requests
 import hashlib
 import yaml
+import pandas as pd
 
 dash.register_page(__name__, path='/notifications')
 
@@ -20,6 +21,65 @@ def hash_email_with_salt(email):
     """Erstellt einen SHA-256 Hash der E-Mail-Adresse mit Salt"""
     salt = get_profile_salt()
     return hashlib.sha256((email.lower() + salt).encode('utf-8')).hexdigest()
+
+def load_all_cis():
+    """Lädt alle verfügbaren CIs"""
+    try:
+        # Try to load CIs from the JSON file first (faster)
+        ci_list_file_path = os.path.join(os.path.dirname(__file__), '..', 'data', 'ci_list.json')
+        
+        if os.path.exists(ci_list_file_path):
+            try:
+                with open(ci_list_file_path, 'r', encoding='utf-8') as f:
+                    ci_list = json.load(f)
+                print(f"Loaded {len(ci_list)} CIs from JSON file")
+                return ci_list
+            except Exception as e:
+                print(f"Error loading from JSON file: {e}, falling back to TimescaleDB")
+        
+        # Fallback: Load from TimescaleDB if JSON doesn't exist or fails
+        cis_df = get_data_of_all_cis('')  # file_name parameter not used anymore
+        
+        if not cis_df.empty:
+            # Convert to list of dictionaries with ci and name
+            ci_list = []
+            for _, row in cis_df.iterrows():
+                ci_info = {
+                    'ci': str(row.get('ci', '')),
+                    'name': str(row.get('name', '')),
+                    'organization': str(row.get('organization', '')),
+                    'product': str(row.get('product', ''))
+                }
+                ci_list.append(ci_info)
+            return ci_list
+        else:
+            return []
+    except Exception as e:
+        print(f"Error loading CIs: {e}")
+        return []
+
+def filter_cis(cis_data, filter_text):
+    """Filtert CIs basierend auf dem Filtertext"""
+    if not cis_data or not filter_text or not filter_text.strip():
+        return cis_data
+    
+    filter_lower = filter_text.lower().strip()
+    filtered_cis = []
+    
+    for ci_info in cis_data:
+        ci_id = ci_info.get('ci', '').lower()
+        ci_name = ci_info.get('name', '').lower()
+        ci_org = ci_info.get('organization', '').lower()
+        ci_product = ci_info.get('product', '').lower()
+        
+        # Check if any field contains the filter text
+        if (filter_lower in ci_id or 
+            filter_lower in ci_name or 
+            filter_lower in ci_org or 
+            filter_lower in ci_product):
+            filtered_cis.append(ci_info)
+    
+    return filtered_cis
 
 def load_profiles_from_db(email):
     """Lädt Profile aus der Datenbank anhand des E-Mail-Hashes"""
@@ -45,11 +105,15 @@ def load_profiles_from_db(email):
                 
                 # Entschlüssele Profil-Daten
                 urls = []
+                selected_cis = []
                 if config_encrypted:
                     try:
                         decrypted_data = decrypt_config_json(bytes(config_encrypted))
-                        if decrypted_data and 'urls' in decrypted_data:
-                            urls = decrypted_data['urls']
+                        if decrypted_data:
+                            if 'urls' in decrypted_data:
+                                urls = decrypted_data['urls']
+                            if 'selected_cis' in decrypted_data:
+                                selected_cis = decrypted_data['selected_cis']
                     except Exception as e:
                         print(f"Fehler beim Entschlüsseln des Profils {profile_id}: {e}")
                 
@@ -58,6 +122,7 @@ def load_profiles_from_db(email):
                     'name': name,
                     'type': profile_type,
                     'urls': urls,
+                    'selected_cis': selected_cis,
                     'created_at': created_at.strftime('%Y-%m-%d %H:%M:%S') if created_at else 'Unbekannt'
                 })
             
@@ -137,6 +202,15 @@ def serve_layout():
         # Profiles store
         dcc.Store(id='profiles-store', data=[]),
         
+        # CI data store
+        dcc.Store(id='available-cis-data', data=[]),
+        
+        # Selected CIs store
+        dcc.Store(id='selected-cis-data', data=[]),
+        
+        # CI filter text store
+        dcc.Store(id='ci-filter-text', data=''),
+        
         # Main content
         html.Div([
             html.H1('Benachrichtigungseinstellungen', className='mb-4'),
@@ -212,6 +286,7 @@ def serve_layout():
                                 html.Button('Alle aktivieren', id='select-all-cis-button', className='btn btn-outline-secondary btn-sm me-2'),
                                 html.Button('Alle deaktivieren', id='deselect-all-cis-button', className='btn btn-outline-secondary btn-sm')
                             ], className='mb-2'),
+                            html.Div(id='ci-filter-info', className='text-muted small mb-2'),
                             html.Div(id='ci-checkboxes-container', className='border p-3 mb-3', style={'maxHeight': '200px', 'overflowY': 'auto'})
                         ]),
                         html.Label('Benachrichtigungs-URLs (eine pro Zeile):', className='form-label'),
@@ -318,13 +393,237 @@ def handle_auth_status(verify_clicks, logout_clicks, email, otp, current_auth, c
     
     return no_update, no_update
 
+# Callback to load all available CIs
+@callback(
+    Output('available-cis-data', 'data'),
+    [Input('auth-status', 'data')]
+)
+def load_available_cis(auth_data):
+    if not auth_data or not auth_data.get('authenticated', False):
+        return []
+    
+    try:
+        cis_data = load_all_cis()
+        return cis_data
+    except Exception as e:
+        print(f"Error loading CIs: {e}")
+        return []
+
+# Callback to store filter text
+@callback(
+    Output('ci-filter-text', 'data'),
+    [Input('ci-filter-input', 'value')],
+    prevent_initial_call=False
+)
+def update_filter_text(filter_text):
+    """Store the filter text for CI filtering"""
+    return filter_text or ''
+
+# Callback to update filter info display
+@callback(
+    Output('ci-filter-info', 'children'),
+    [Input('ci-filter-text', 'data'),
+     Input('available-cis-data', 'data')]
+)
+def update_filter_info(filter_text, available_cis_data):
+    """Update the filter information display"""
+    if not available_cis_data:
+        return ''
+    
+    total_cis = len(available_cis_data)
+    
+    if not filter_text or not filter_text.strip():
+        return f'Zeige alle {total_cis} Configuration Items'
+    
+    # Count filtered results
+    filtered_cis = filter_cis(available_cis_data, filter_text)
+    filtered_count = len(filtered_cis)
+    
+    return f'Filter: "{filter_text}" - {filtered_count} von {total_cis} CIs angezeigt'
+
+# Callback to render CI checkboxes
+@callback(
+    Output('ci-checkboxes-container', 'children'),
+    [Input('available-cis-data', 'data'),
+     Input('selected-cis-data', 'data'),
+     Input('ci-filter-text', 'data')]
+)
+def render_ci_checkboxes(cis_data, selected_cis, filter_text):
+    if not cis_data:
+        return html.P('Lade CIs...', className='text-muted text-center')
+    
+    try:
+        # Filter CIs based on filter text
+        filtered_cis = filter_cis(cis_data, filter_text) if filter_text else cis_data
+        
+        # Create checkboxes for each filtered CI
+        checkbox_children = []
+        for ci_info in filtered_cis:
+            ci_id = ci_info.get('ci', '')
+            ci_name = ci_info.get('name', '')
+            ci_org = ci_info.get('organization', '')
+            ci_product = ci_info.get('product', '')
+            
+            # Check if this CI is selected
+            is_checked = ci_id in (selected_cis or [])
+            
+            # Create checkbox with label
+            checkbox = html.Div([
+                dcc.Checklist(
+                    id={'type': 'ci-checkbox', 'ci': ci_id},
+                    options=[{'label': '', 'value': ci_id}],
+                    value=[ci_id] if is_checked else [],
+                    className='me-2'
+                ),
+                html.Label([
+                    html.Strong(ci_id),
+                    html.Br(),
+                    html.Span(f"{ci_name}", className='text-dark small'),
+                    html.Br(),
+                    html.Span(f"{ci_org} - {ci_product}", className='text-muted small')
+                ], className='cursor-pointer')
+            ], className='d-flex align-items-start mb-2 p-2 border rounded')
+            
+            checkbox_children.append(checkbox)
+        
+        if not checkbox_children:
+            return html.P('Keine CIs gefunden', className='text-muted text-center')
+        
+        return checkbox_children
+        
+    except Exception as e:
+        return html.P(f'Fehler beim Laden der CIs: {str(e)}', className='text-danger text-center')
+
+# Callback to collect selected CIs from checkboxes
+@callback(
+    Output('selected-cis-data', 'data', allow_duplicate=True),
+    [Input({'type': 'ci-checkbox', 'ci': ALL}, 'value')],
+    [State('available-cis-data', 'data')],
+    prevent_initial_call='initial_duplicate'
+)
+def update_selected_cis(checkbox_values, available_cis_data):
+    """Update the selected CIs when checkboxes change"""
+    if not available_cis_data:
+        return []
+    
+    # Collect all selected CIs from the checkbox values
+    selected_cis = []
+    for checkbox_value in checkbox_values:
+        if checkbox_value:  # If checkbox has a value (is checked)
+            selected_cis.extend(checkbox_value)
+    
+    # Remove duplicates
+    selected_cis = list(set(selected_cis))
+    
+    return selected_cis
+
+# Callback to select all CIs
+@callback(
+    Output('selected-cis-data', 'data', allow_duplicate=True),
+    [Input('select-all-cis-button', 'n_clicks')],
+    [State('available-cis-data', 'data'),
+     State('ci-filter-text', 'data')],
+    prevent_initial_call=True
+)
+def select_all_cis(n_clicks, available_cis_data, filter_text):
+    """Select all available CIs"""
+    if not n_clicks or not available_cis_data:
+        return no_update
+    
+    # Filter CIs based on filter text
+    filtered_cis = filter_cis(available_cis_data, filter_text) if filter_text else available_cis_data
+    
+    # Get all CI IDs from filtered CIs
+    all_ci_ids = [ci_info.get('ci', '') for ci_info in filtered_cis if ci_info.get('ci')]
+    return all_ci_ids
+
+# Callback to deselect all CIs
+@callback(
+    Output('selected-cis-data', 'data', allow_duplicate=True),
+    [Input('deselect-all-cis-button', 'n_clicks')],
+    prevent_initial_call=True
+)
+def deselect_all_cis(n_clicks):
+    """Deselect all CIs"""
+    if not n_clicks:
+        return no_update
+    
+    # Return empty list to deselect all
+    return []
+
+# Profile deletion callback - handles individual profile deletion
+@callback(
+    Output('profiles-container', 'children', allow_duplicate=True),
+    Input({'type': 'delete-profile-button', 'index': ALL}, 'n_clicks'),
+    State({'type': 'delete-profile-button', 'index': ALL}, 'id'),
+    State('auth-status', 'data'),
+    prevent_initial_call=True
+)
+def handle_profile_deletion(n_clicks_list, button_ids_list, auth_data):
+    # Check if any button was clicked
+    if not any(n_clicks_list):
+        return no_update
+    
+    # Find which button was clicked (the one with n_clicks > 0)
+    clicked_index = None
+    for i, n_clicks in enumerate(n_clicks_list):
+        if n_clicks and n_clicks > 0:
+            clicked_index = i
+            break
+    
+    if clicked_index is None:
+        return no_update
+    
+    # Get the profile ID from the clicked button
+    clicked_button_id = button_ids_list[clicked_index]
+    profile_id = clicked_button_id['index']
+    
+    # Check authentication
+    if not auth_data or not auth_data.get('authenticated', False):
+        return no_update
+    
+    email = auth_data.get('email', '')
+    if not email:
+        return no_update
+    
+    # Delete the profile
+    result = delete_profile_from_db(email, profile_id)
+    
+    if result['success']:
+        # Reload profiles from database
+        db_profiles = load_profiles_from_db(email)
+        if db_profiles:
+            profile_list = []
+            for i, profile in enumerate(db_profiles):
+                # Count selected CIs
+                ci_count = len(profile.get('selected_cis', []))
+                
+                profile_list.append(html.Div([
+                    html.H5(f"Profil: {profile['name']}"),
+                    html.P(f"Typ: {profile['type']}"),
+                    html.P(f"Konfigurationsobjekte: {ci_count}"),
+                    html.P(f"URLs: {', '.join(profile['urls'])}"),
+                    html.P(f"Erstellt: {profile['created_at']}"),
+                    html.Button('Löschen', 
+                              id={'type': 'delete-profile-button', 'index': profile["id"]},
+                              className='btn btn-danger btn-sm mt-2')
+                ], className='border p-3 mb-3'))
+            
+            return profile_list
+        else:
+            return []
+    else:
+        print(f"Error deleting profile: {result.get('error', 'Unknown error')}")
+        return no_update
+
 # Profiles callback - handles display, adding, editing, and deleting profiles
 @callback(
     [Output('profiles-container', 'children'),
      Output('profile-form', 'style'),
      Output('profile-name', 'value'),
      Output('profile-urls', 'value'),
-     Output('profiles-store', 'data')],
+     Output('profiles-store', 'data'),
+     Output('selected-cis-data', 'data')],
     [Input('auth-status', 'data'),
      Input('add-profile-button', 'n_clicks'),
      Input('cancel-profile-button', 'n_clicks'),
@@ -333,10 +632,11 @@ def handle_auth_status(verify_clicks, logout_clicks, email, otp, current_auth, c
      State('profile-name', 'value'),
      State('profile-urls', 'value'),
      State('profile-type', 'value'),
-     State('profiles-store', 'data')],
+     State('profiles-store', 'data'),
+     State('selected-cis-data', 'data')],
     prevent_initial_call=False
 )
-def handle_profiles(auth_data, add_clicks, cancel_clicks, save_clicks, form_style, profile_name, profile_urls, profile_type, profiles_data):
+def handle_profiles(auth_data, add_clicks, cancel_clicks, save_clicks, form_style, profile_name, profile_urls, profile_type, profiles_data, selected_cis):
     ctx = dash.callback_context
     print(f"DEBUG: handle_profiles called with triggered: {ctx.triggered}")
     
@@ -352,18 +652,25 @@ def handle_profiles(auth_data, add_clicks, cancel_clicks, save_clicks, form_styl
             if db_profiles:
                 profile_list = []
                 for i, profile in enumerate(db_profiles):
+                    # Count selected CIs
+                    ci_count = len(profile.get('selected_cis', []))
+                    
                     profile_list.append(html.Div([
                         html.H5(f"Profil: {profile['name']}"),
                         html.P(f"Typ: {profile['type']}"),
+                        html.P(f"Konfigurationsobjekte: {ci_count}"),
                         html.P(f"URLs: {', '.join(profile['urls'])}"),
-                        html.P(f"Erstellt: {profile['created_at']}")
+                        html.P(f"Erstellt: {profile['created_at']}"),
+                        html.Button('Löschen', 
+                                  id={'type': 'delete-profile-button', 'index': profile["id"]},
+                                  className='btn btn-danger btn-sm mt-2')
                     ], className='border p-3 mb-3'))
                 
-                return profile_list, {'display': 'none'}, '', '', []
+                return profile_list, {'display': 'none'}, '', '', db_profiles, []
             else:
-                return [], {'display': 'none'}, '', '', []
+                return [], {'display': 'none'}, '', '', [], []
         else:
-            return [], {'display': 'none'}, '', '', []
+            return [], {'display': 'none'}, '', '', [], []
     
     triggered_id = ctx.triggered[0]['prop_id'].split('.')[0]
     print(f"DEBUG: Profile callback triggered by: {triggered_id}")
@@ -372,7 +679,7 @@ def handle_profiles(auth_data, add_clicks, cancel_clicks, save_clicks, form_styl
     if triggered_id == 'auth-status':
         print(f"DEBUG: Auth status changed: {auth_data}")
         if not auth_data or not auth_data.get('authenticated', False):
-            return [], {'display': 'none'}, '', '', []
+            return [], {'display': 'none'}, '', '', [], []
         
         # Load profiles from database using email from auth data
         email = auth_data.get('email', '') if auth_data else ''
@@ -383,43 +690,50 @@ def handle_profiles(auth_data, add_clicks, cancel_clicks, save_clicks, form_styl
         if db_profiles:
             profile_list = []
             for i, profile in enumerate(db_profiles):
+                # Count selected CIs
+                ci_count = len(profile.get('selected_cis', []))
+                
                 profile_list.append(html.Div([
                     html.H5(f"Profil: {profile['name']}"),
                     html.P(f"Typ: {profile['type']}"),
+                    html.P(f"Konfigurationsobjekte: {ci_count}"),
                     html.P(f"URLs: {', '.join(profile['urls'])}"),
-                    html.P(f"Erstellt: {profile['created_at']}")
+                    html.P(f"Erstellt: {profile['created_at']}"),
+                    html.Button('Löschen', 
+                              id={'type': 'delete-profile-button', 'index': profile["id"]},
+                              className='btn btn-danger btn-sm mt-2')
                 ], className='border p-3 mb-3'))
             
-            return profile_list, {'display': 'none'}, '', '', []
+            return profile_list, {'display': 'none'}, '', '', db_profiles, []
         else:
-            return [], {'display': 'none'}, '', '', []
+            return [], {'display': 'none'}, '', '', [], []
     
     # Handle save profile button clicks
     if triggered_id == 'save-profile-button' and save_clicks and save_clicks > 0:
         print(f"DEBUG: Save profile triggered, auth_data: {auth_data}")
         if not auth_data or not auth_data.get('authenticated', False):
             print("DEBUG: Not authenticated, cannot save profile")
-            return [], {'display': 'none'}, '', '', []
+            return [], {'display': 'none'}, '', '', [], []
         
         email = auth_data.get('email', '') if auth_data else ''
         print(f"DEBUG: Email from auth_data: {email}")
         if not email:
             print("DEBUG: No email found in auth_data")
-            return [], {'display': 'none'}, '', '', []
+            return [], {'display': 'none'}, '', '', [], []
         
         # Validate inputs
         if not profile_name or not profile_name.strip():
             print("DEBUG: No profile name provided")
-            return [], {'display': 'none'}, '', '', []
+            return [], {'display': 'none'}, '', '', [], []
         
         # Parse URLs
         urls = []
         if profile_urls and profile_urls.strip():
             urls = [url.strip() for url in profile_urls.split('\n') if url.strip()]
         
-        print(f"DEBUG: Saving profile '{profile_name.strip()}' with {len(urls)} URLs for email {email}")
+        print(f"DEBUG: Saving profile '{profile_name.strip()}' with {len(urls)} URLs and {len(selected_cis or [])} CIs for email {email}")
         # Save to database
-        result = save_profile_to_db(email, profile_name.strip(), urls, profile_type or 'whitelist')
+        result = save_profile_to_db(email, profile_name.strip(), urls, profile_type or 'whitelist', selected_cis)
         print(f"DEBUG: Save result: {result}")
         if result['success']:
             # Reload profiles from database
@@ -428,31 +742,38 @@ def handle_profiles(auth_data, add_clicks, cancel_clicks, save_clicks, form_styl
             if db_profiles:
                 profile_list = []
                 for i, profile in enumerate(db_profiles):
+                    # Count selected CIs
+                    ci_count = len(profile.get('selected_cis', []))
+                    
                     profile_list.append(html.Div([
                         html.H5(f"Profil: {profile['name']}"),
                         html.P(f"Typ: {profile['type']}"),
+                        html.P(f"Konfigurationsobjekte: {ci_count}"),
                         html.P(f"URLs: {', '.join(profile['urls'])}"),
-                        html.P(f"Erstellt: {profile['created_at']}")
+                        html.P(f"Erstellt: {profile['created_at']}"),
+                        html.Button('Löschen', 
+                                  id={'type': 'delete-profile-button', 'index': profile["id"]},
+                                  className='btn btn-danger btn-sm mt-2')
                     ], className='border p-3 mb-3'))
                 
-                return profile_list, {'display': 'none'}, '', '', []
+                return profile_list, {'display': 'none'}, '', '', db_profiles, []
             else:
-                return [], {'display': 'none'}, '', '', []
+                return [], {'display': 'none'}, '', '', [], []
         else:
             print(f"DEBUG: Save failed: {result.get('error', 'Unknown error')}")
-            return [], {'display': 'none'}, '', '', []
+            return [], {'display': 'none'}, '', '', [], []
     
     # Handle add profile button clicks
     if triggered_id == 'add-profile-button' and add_clicks and add_clicks > 0:
         print("DEBUG: Add profile button clicked")
-        return [], {'display': 'block', 'border': '1px solid #ccc', 'padding': '20px', 'marginTop': '20px', 'borderRadius': '5px'}, '', '', []
+        return [], {'display': 'block', 'border': '1px solid #ccc', 'padding': '20px', 'marginTop': '20px', 'borderRadius': '5px'}, '', '', [], []
     
     # Handle cancel profile button clicks
     if triggered_id == 'cancel-profile-button' and cancel_clicks and cancel_clicks > 0:
         print("DEBUG: Cancel profile button clicked")
-        return [], {'display': 'none'}, '', '', []
+        return [], {'display': 'none'}, '', '', [], []
     
-    return no_update, no_update, no_update, no_update, no_update
+    return no_update, no_update, no_update, no_update, no_update, no_update
 
 
 # UI visibility callback
