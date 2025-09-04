@@ -59,27 +59,48 @@ try {
     var ns = clientside["notifications"] = clientside["notifications"] || {};
 
     ns["sendTestNotification"] = function(n_clicks, url) {
+        console.log("sendTestNotification called with:", n_clicks, url);
         if (!n_clicks || n_clicks < 1) {
+            console.log("No clicks or clicks < 1");
             return window.dash_clientside.no_update;
         }
         if (!url || !String(url).trim()) {
+            console.log("No URL provided");
             return "Bitte geben Sie eine Apprise-URL ein.";
         }
         try {
+            console.log("Making fetch request to /api/notifications/test");
+            console.log("Document cookies:", document.cookie);
             return fetch('/api/notifications/test', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 credentials: 'include',
                 body: JSON.stringify({ url: String(url).trim(), title: 'TI-Monitoring Test (UI)', body: 'UI-Test über /api/notifications/test' })
-            }).then(function(resp) { return resp.json(); }).then(function(data) {
+            }).then(function(resp) {
+                console.log("Received response:", resp);
+                console.log("Response status:", resp.status);
+                console.log("Response headers:", [...resp.headers.entries()]);
+                
+                if (!resp.ok) {
+                    if (resp.status === 401) {
+                        console.log("Received 401 Unauthorized - session may have expired");
+                        return 'Fehler: Nicht authentifiziert. Bitte melden Sie sich erneut an.';
+                    }
+                    throw new Error('HTTP error ' + resp.status);
+                }
+                return resp.json();
+            }).then(function(data) {
+                console.log("Received data:", data);
                 if (data && data.status === 'ok') {
                     return 'Test-Benachrichtigung erfolgreich gesendet.';
                 }
                 return 'Fehler: ' + (data && (data.error || data.status) || 'unbekannt');
             }).catch(function(err) {
+                console.log("Fetch error:", err);
                 return 'Fehler: ' + String(err);
             });
         } catch (e) {
+            console.log("Exception:", e);
             return 'Fehler: ' + String(e);
         }
     };

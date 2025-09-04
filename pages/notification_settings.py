@@ -352,6 +352,25 @@ def serve_layout():
                     ])
                 ], className='box'),
                 
+                # Apprise test section
+                html.Div([
+                    html.H4('Apprise-Benachrichtigung testen'),
+                    html.P('Geben Sie eine Apprise-URL ein, um zu testen, ob Ihr Benachrichtigungssystem funktioniert.', className='text-muted'),
+                    html.Div([
+                        html.Label('Apprise-URL:', className='form-label'),
+                        dcc.Input(
+                            id='test-apprise-url',
+                            type='text',
+                            placeholder='z.B. tgram://bottoken/ChatID',
+                            className='form-control'
+                        ),
+                        html.Div(className='button-group', children=[
+                            html.Button('Benachrichtigung testen', id='test-notification-button', className='button'),
+                        ]),
+                        html.Div(id='test-result', className='mt-2')
+                    ], className='form-group')
+                ], className='box'),
+                
                 # Profiles container
                 html.Div(id='profiles-container')
             ])
@@ -360,87 +379,40 @@ def serve_layout():
 
 layout = serve_layout
 
-# OTP request callback
-@callback(
+# Remove the serverside OTP request callback entirely since we're using clientside callbacks
+# The clientside implementation is in assets/script.js
+
+# Add clientside callbacks for authentication
+# Clientside callback for OTP request
+clientside_callback(
+    ClientsideFunction(namespace="notifications", function_name="requestOtp"),
     Output('otp-request-result', 'children'),
     Input('request-otp-button', 'n_clicks'),
     State('email-input', 'value'),
-    prevent_initial_call=True
+    prevent_initial_call='initial_duplicate'
 )
-def handle_otp_request(n_clicks, email):
-    if not n_clicks or not email:
-        return ""
-    
-    try:
-        # Call the API to request OTP
-        response = requests.post('http://localhost:8050/api/auth/request_otp', 
-                               json={'email': email}, 
-                               timeout=10)
-        
-        if response.status_code == 200:
-            return html.Div([
-                html.P('Einmalcode wurde an Ihre E-Mail-Adresse gesendet.', 
-                      className='alert alert-success')
-            ])
-        else:
-            return html.Div([
-                html.P(f'Fehler beim Senden des Einmalcodes: {response.text}', 
-                      className='alert alert-danger')
-            ])
-    except Exception as e:
-        return html.Div([
-            html.P(f'Fehler beim Senden des Einmalcodes: {str(e)}', 
-                  className='alert alert-danger')
-        ])
 
-# Auth status callback - handles login and logout
-@callback(
-    [Output('auth-status', 'data'),
-     Output('user-id-store', 'data')],
-    [Input('verify-otp-button', 'n_clicks'),
-     Input('logout-button', 'n_clicks')],
-    [State('email-input', 'value'),
-     State('otp-input', 'value'),
-     State('auth-status', 'data'),
-     State('user-id-store', 'data')],
-    prevent_initial_call=False
+# Clientside callback for OTP verification
+clientside_callback(
+    ClientsideFunction(namespace="notifications", function_name="verifyOtp"),
+    Output('auth-status', 'data'),
+    Input('verify-otp-button', 'n_clicks'),
+    State('email-input', 'value'),
+    State('otp-input', 'value'),
+    prevent_initial_call='initial_duplicate'
 )
-def handle_auth_status(verify_clicks, logout_clicks, email, otp, current_auth, current_user_id):
-    ctx = dash.callback_context
-    
-    # Initial call - check if we have existing auth data
-    if not ctx.triggered:
-        if current_auth and current_auth.get('authenticated', False):
-            return current_auth, current_user_id
-        return {'authenticated': False}, current_user_id
-    
-    triggered_id = ctx.triggered[0]['prop_id'].split('.')[0]
-    
-    if triggered_id == 'logout-button' and logout_clicks and logout_clicks > 0:
-        return {'authenticated': False}, current_user_id
-    elif triggered_id == 'verify-otp-button' and verify_clicks and verify_clicks > 0:
-        # Verify OTP with API
-        if not email or not otp:
-            return {'authenticated': False}, current_user_id
-        
-        try:
-            response = requests.post('http://localhost:8050/api/auth/verify_otp', 
-                                   json={'email': email, 'code': otp}, 
-                                   timeout=10)
-            
-            if response.status_code == 200:
-                data = response.json()
-                if data.get('status') == 'ok':
-                    return {'authenticated': True, 'email': email}, current_user_id
-                else:
-                    return {'authenticated': False}, current_user_id
-            else:
-                return {'authenticated': False}, current_user_id
-        except Exception as e:
-            print(f"Error verifying OTP: {e}")
-            return {'authenticated': False}, current_user_id
-    
-    return no_update, no_update
+
+# Add the clientside callback for Apprise testing right after the auth callback
+from dash.dependencies import ClientsideFunction
+
+# Clientside callback for Apprise notification testing
+clientside_callback(
+    ClientsideFunction(namespace="notifications", function_name="sendTestNotification"),
+    Output('test-result', 'children'),
+    Input('test-notification-button', 'n_clicks'),
+    State('test-apprise-url', 'value'),
+    prevent_initial_call='initial_duplicate'
+)
 
 # Callback to load all available CIs
 @callback(
