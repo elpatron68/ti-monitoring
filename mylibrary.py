@@ -156,7 +156,7 @@ def init_user_notifications_schema() -> None:
 
             CREATE TABLE IF NOT EXISTS users (
               id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-              email TEXT UNIQUE NOT NULL,
+              email_hash TEXT UNIQUE,
               created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
               deleted_at TIMESTAMPTZ
             );
@@ -184,6 +184,7 @@ def init_user_notifications_schema() -> None:
               user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
               name TEXT NOT NULL,
               type TEXT NOT NULL CHECK (type IN ('whitelist','blacklist')),
+              config_encrypted BYTEA,
               created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
             );
 
@@ -210,14 +211,27 @@ def _hash_otp(code: str) -> str:
 def _generate_otp_code() -> str:
     return f"{secrets.randbelow(1000000):06d}"
 
+def get_profile_salt():
+    """Lädt den Profil-Salt aus der .env Datei"""
+    try:
+        return os.getenv('TI_PROFILE_SALT', 'default-salt-change-me')
+    except:
+        return 'default-salt-change-me'
+
+def hash_email_with_salt(email):
+    """Erstellt einen SHA-256 Hash der E-Mail-Adresse mit Salt"""
+    salt = get_profile_salt()
+    return hashlib.sha256((email.lower() + salt).encode('utf-8')).hexdigest()
+
 def ensure_user(email: str) -> Optional[str]:
     """Erzeugt oder liefert user.id für die E-Mail."""
+    email_hash = hash_email_with_salt(email)
     with get_db_conn() as conn, conn.cursor() as cur:
-        cur.execute("SELECT id FROM users WHERE email=%s AND deleted_at IS NULL", (email,))
+        cur.execute("SELECT id FROM users WHERE email_hash=%s AND deleted_at IS NULL", (email_hash,))
         row = cur.fetchone()
         if row:
             return str(row[0])
-        cur.execute("INSERT INTO users(email) VALUES(%s) RETURNING id", (email,))
+        cur.execute("INSERT INTO users(email_hash) VALUES(%s) RETURNING id", (email_hash,))
         new_id = cur.fetchone()[0]
         conn.commit()
         return str(new_id)
@@ -240,8 +254,9 @@ def create_otp_for_user(email: str, ttl_minutes: int = 10) -> str:
 
 def verify_otp_and_create_session(email: str, code: str, session_days: int = 30) -> Optional[str]:
     """Verifiziert OTP und erzeugt eine Session. Liefert session.id oder None."""
+    email_hash = hash_email_with_salt(email)
     with get_db_conn() as conn, conn.cursor() as cur:
-        cur.execute("SELECT id FROM users WHERE email=%s AND deleted_at IS NULL", (email,))
+        cur.execute("SELECT id FROM users WHERE email_hash=%s AND deleted_at IS NULL", (email_hash,))
         u = cur.fetchone()
         if not u:
             return None
@@ -1037,6 +1052,170 @@ def send_apprise_notifications(file_name, notifications_config_file, home_url):
             print(f'Sending notification for profile failed: {e}')
             pass
 
+def send_db_notifications():
+    """
+    Sends notifications via Apprise for all active notification profiles from the database.
+    This replaces the file-based notification system with a database-driven approach.
+    
+    Returns:
+        dict: Summary of notifications sent
+    """
+    try:
+        # Initialize counters
+        profiles_processed = 0
+        notifications_sent = 0
+        errors = 0
+        
+        with get_db_conn() as conn:
+            with conn.cursor() as cur:
+                # Get all notification profiles with their CIs and destinations (no is_active column in schema)
+                query = """
+                SELECT 
+                    np.id as profile_id,
+                    np.name as profile_name,
+                    np.type as profile_type,
+                    npci.ci,
+                    d.id as destination_id,
+                    d.provider,
+                    d.config_encrypted
+                FROM notification_profiles np
+                LEFT JOIN notification_profile_cis npci ON np.id = npci.profile_id
+                LEFT JOIN destinations d ON np.id = d.profile_id
+                ORDER BY np.id, npci.ci, d.id
+                """
+                
+                cur.execute(query)
+                rows = cur.fetchall()
+                
+                if not rows:
+                    print("No active notification profiles found in database")
+                    return {
+                        'profiles_processed': 0,
+                        'notifications_sent': 0,
+                        'errors': 0,
+                        'message': 'No active profiles found'
+                    }
+                
+                # Group by profile
+                profiles = {}
+                for row in rows:
+                    profile_id, profile_name, profile_type, ci, dest_id, provider, config_encrypted = row
+                    
+                    if profile_id not in profiles:
+                        profiles[profile_id] = {
+                            'name': profile_name,
+                            'type': profile_type or 'whitelist',
+                            'cis': set(),
+                            'destinations': []
+                        }
+                    
+                    if ci:
+                        profiles[profile_id]['cis'].add(ci)
+                    
+                    if dest_id and provider and config_encrypted:
+                        # Decrypt destination config
+                        config = {}
+                        if is_encryption_ready():
+                            try:
+                                config = decrypt_config_json(config_encrypted)
+                            except Exception as e:
+                                print(f"WARN: Failed to decrypt destination config for id {dest_id}: {e}")
+                                continue
+                        else:
+                            try:
+                                config = _json.loads(config_encrypted.decode('utf-8'))
+                            except Exception:
+                                continue
+                        
+                        # Extract Apprise URLs from config
+                        urls = config.get('urls', [])
+                        if urls:
+                            profiles[profile_id]['destinations'].append({
+                                'id': dest_id,
+                                'provider': provider,
+                                'urls': urls
+                            })
+                
+                # Get current CI changes
+                ci_data = get_data_of_all_cis('')  # file_name not used anymore
+                changes = ci_data[ci_data['availability_difference'] != 0]
+                changes_sorted = changes.sort_values(by='availability_difference')
+                
+                # Process each profile
+                for profile_id, profile_data in profiles.items():
+                    try:
+                        profiles_processed += 1
+                        profile_name = profile_data['name']
+                        profile_type = (profile_data.get('type') or 'whitelist').lower()
+                        profile_cis = list(profile_data['cis'])
+                        destinations = profile_data['destinations']
+                        
+                        if not destinations:
+                            print(f"Profile {profile_name} has no destinations, skipping")
+                            continue
+                        
+                        # Filter changes for this profile according to type
+                        if profile_type == 'whitelist':
+                            if not profile_cis:
+                                print(f"Profile {profile_name} whitelist has no CIs, skipping")
+                                continue
+                            relevant_changes = changes_sorted[changes_sorted['ci'].isin(profile_cis)]
+                        elif profile_type == 'blacklist':
+                            if profile_cis:
+                                relevant_changes = changes_sorted[~changes_sorted['ci'].isin(profile_cis)]
+                            else:
+                                # Empty blacklist means allow all
+                                relevant_changes = changes_sorted
+                        else:
+                            # Fallback behaves like whitelist
+                            if not profile_cis:
+                                print(f"Profile {profile_name} unknown type uses whitelist semantics but has no CIs, skipping")
+                                continue
+                            relevant_changes = changes_sorted[changes_sorted['ci'].isin(profile_cis)]
+                        number_of_relevant_changes = len(relevant_changes)
+                        
+                        if number_of_relevant_changes == 0:
+                            print(f"Profile {profile_name}: No relevant changes found")
+                            continue
+                        
+                        # Create notification message
+                        message = create_notification_message(relevant_changes, profile_name, '/')
+                        subject = f'TI-Monitoring: {number_of_relevant_changes} Änderungen der Verfügbarkeit'
+                        
+                        # Send to all destinations for this profile
+                        apobj = apprise.Apprise()
+                        for dest in destinations:
+                            for url in dest['urls']:
+                                apobj.add(url)
+                        
+                        if apobj.notify(title=subject, body=message, body_format=apprise.NotifyFormat.HTML):
+                            notifications_sent += 1
+                            print(f"Profile {profile_name}: Sent notification about {number_of_relevant_changes} changes to {len(destinations)} destinations")
+                        else:
+                            errors += 1
+                            print(f"Profile {profile_name}: Failed to send notification")
+                            
+                    except Exception as e:
+                        errors += 1
+                        print(f"Error processing profile {profile_id}: {e}")
+                        continue
+        
+        return {
+            'profiles_processed': profiles_processed,
+            'notifications_sent': notifications_sent,
+            'errors': errors,
+            'message': f'Processed {profiles_processed} profiles, sent {notifications_sent} notifications, {errors} errors'
+        }
+        
+    except Exception as e:
+        print(f"Error in send_db_notifications: {e}")
+        return {
+            'profiles_processed': 0,
+            'notifications_sent': 0,
+            'errors': 1,
+            'message': f'Error: {e}'
+        }
+
 def send_notifications(file_name, notifications_config_file, smtp_settings, home_url):
     """
     Sends email notifications for each notification configuration about all
@@ -1166,3 +1345,60 @@ def validate_apprise_urls(urls):
     except Exception:
         return False
         
+
+# === AEAD Encryption Helpers (Env-Key) ===
+def _get_secret_key_bytes() -> bytes:
+    try:
+        import base64 as _b64
+        key_b64 = (os.environ.get('TI_SECRET_KEY') or '').strip()
+        if not key_b64:
+            return b''
+        return _b64.urlsafe_b64decode(key_b64.encode('utf-8'))
+    except Exception:
+        return b''
+
+def is_encryption_ready() -> bool:
+    return bool(_get_secret_key_bytes())
+
+def derive_aead_key() -> bytes:
+    key = _get_secret_key_bytes()
+    if len(key) >= 32:
+        return key[:32]
+    return (key + b'\x00' * 32)[:32]
+
+def aead_encrypt(plaintext: bytes, aad: bytes = b'') -> bytes:
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+    key = derive_aead_key()
+    if not key:
+        return plaintext
+    nonce = os.urandom(12)
+    ct = AESGCM(key).encrypt(nonce, plaintext, aad)
+    return nonce + ct
+
+def aead_decrypt(blob: bytes, aad: bytes = b'') -> bytes:
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+    key = derive_aead_key()
+    if not key:
+        return blob
+    if not blob or len(blob) < 13:
+        return b''
+    nonce, ct = blob[:12], blob[12:]
+    try:
+        return AESGCM(key).decrypt(nonce, ct, aad)
+    except Exception:
+        return b''
+
+def encrypt_config_json(config_obj: dict) -> bytes:
+    import json as _json
+    payload = _json.dumps(config_obj, ensure_ascii=False).encode('utf-8')
+    return aead_encrypt(payload)
+
+def decrypt_config_json(blob: bytes) -> dict:
+    import json as _json
+    try:
+        data = aead_decrypt(blob)
+        if not data:
+            return {}
+        return _json.loads(data.decode('utf-8'))
+    except Exception:
+        return {}

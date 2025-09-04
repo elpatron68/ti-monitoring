@@ -33,14 +33,124 @@ window.addEventListener('click', function(event) {
     }
 });
 
-// add favicon to head
-var favicon_png = document.createElement('link')
-favicon_png.rel = 'apple-touch-icon'
-favicon_png.type = 'image/png'
-favicon_png.href = 'assets/favicon.png'
-document.getElementsByTagName('head')[0].appendChild(favicon_png)
-var favicon_svg = document.createElement('icon')
-favicon_svg.rel = 'icon'
-favicon_svg.type = 'image/svg+xml'
-favicon_svg.href = 'assets/logo.svg'
-document.getElementsByTagName('head')[0].appendChild(favicon_svg)
+// add favicon to head (defensive)
+try {
+    var headEl = document.getElementsByTagName('head')[0];
+    if (headEl && headEl.appendChild) {
+        var favicon_png = document.createElement('link');
+        favicon_png.setAttribute('rel', 'apple-touch-icon');
+        favicon_png.setAttribute('type', 'image/png');
+        favicon_png.setAttribute('href', 'assets/favicon.png');
+        headEl.appendChild(favicon_png);
+
+        var favicon_svg = document.createElement('link');
+        favicon_svg.setAttribute('rel', 'icon');
+        favicon_svg.setAttribute('type', 'image/svg+xml');
+        favicon_svg.setAttribute('href', 'assets/logo.svg');
+        headEl.appendChild(favicon_svg);
+    }
+} catch (e) {
+    // noop
+}
+
+// Dash clientside helper for notifications test
+(function() {
+    var clientside = window.dash_clientside = window.dash_clientside || {};
+    var ns = clientside["notifications"] = clientside["notifications"] || {};
+
+    ns["sendTestNotification"] = function(n_clicks, url) {
+        if (!n_clicks || n_clicks < 1) {
+            return window.dash_clientside.no_update;
+        }
+        if (!url || !String(url).trim()) {
+            return "Bitte geben Sie eine Apprise-URL ein.";
+        }
+        try {
+            return fetch('/api/notifications/test', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                body: JSON.stringify({ url: String(url).trim(), title: 'TI-Monitoring Test (UI)', body: 'UI-Test über /api/notifications/test' })
+            }).then(function(resp) { return resp.json(); }).then(function(data) {
+                if (data && data.status === 'ok') {
+                    return 'Test-Benachrichtigung erfolgreich gesendet.';
+                }
+                return 'Fehler: ' + (data && (data.error || data.status) || 'unbekannt');
+            }).catch(function(err) {
+                return 'Fehler: ' + String(err);
+            });
+        } catch (e) {
+            return 'Fehler: ' + String(e);
+        }
+    };
+
+    ns["requestOtp"] = function(n_clicks, email) {
+        if (!n_clicks || n_clicks < 1) {
+            return window.dash_clientside.no_update;
+        }
+        if (!email || !String(email).trim()) {
+            return 'Bitte E-Mail eingeben.';
+        }
+        return fetch('/api/auth/request_otp', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({ email: String(email).trim() })
+        }).then(function(resp) { return resp.json(); }).then(function(data) {
+            if (data && (data.status === 'ok' || data.sent === true)) {
+                return 'OTP wurde gesendet. Prüfen Sie Ihren Posteingang.';
+            }
+            return 'Fehler beim Senden des OTP: ' + (data && (data.error || data.status) || 'unbekannt');
+        }).catch(function(err) { return 'Fehler: ' + String(err); });
+    };
+
+    ns["verifyOtp"] = function(n_clicks, email, otp) {
+        if (!n_clicks || n_clicks < 1) {
+            return window.dash_clientside.no_update;
+        }
+        if (!email || !String(email).trim()) {
+            return { authenticated: false };
+        }
+        if (!otp || !String(otp).trim()) {
+            return { authenticated: false };
+        }
+        return fetch('/api/auth/verify_otp', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({ email: String(email).trim(), code: String(otp).trim() })
+        }).then(function(resp) { return resp.json(); }).then(function(data) {
+            if (data && data.status === 'ok') {
+                return { authenticated: true };
+            }
+            return { authenticated: false };
+        }).catch(function() { return { authenticated: false }; });
+    };
+
+    ns["checkSession"] = function(n_intervals) {
+        return fetch('/api/auth/session', {
+            method: 'GET',
+            credentials: 'include'
+        }).then(function(resp) {
+            if (resp && resp.ok) { return { authenticated: true }; }
+            return { authenticated: false };
+        }).catch(function() { return { authenticated: false }; });
+    };
+
+    ns["deleteAccount"] = function(n_clicks) {
+        if (!n_clicks || n_clicks < 1) {
+            return window.dash_clientside.no_update;
+        }
+        return fetch('/api/account', {
+            method: 'DELETE',
+            credentials: 'include'
+        }).then(function(resp) { return resp.json(); }).then(function(data) {
+            if (data && data.status === 'ok') {
+                return { msg: 'Konto wurde gelöscht. Bitte Seite neu laden.', ok: true };
+            }
+            return { msg: 'Löschen fehlgeschlagen: ' + (data && (data.error || 'unbekannt')), ok: false };
+        }).catch(function(err) {
+            return { msg: 'Löschen fehlgeschlagen: ' + String(err), ok: false };
+        });
+    };
+})();

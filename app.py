@@ -10,8 +10,20 @@ import apprise
 import psutil
 import gc
 
-app = Dash(__name__, use_pages=True, title='TI-Monitoring')
+app = Dash(__name__, use_pages=True, title='TI-Monitoring', suppress_callback_exceptions=True)
+# Dash: erlaubte Initial-Duplicates für Callbacks mit allow_duplicate
+app.config.prevent_initial_callbacks = 'initial_duplicate'
 server = app.server
+
+# Pages werden automatisch von Dash geladen (use_pages=True)
+
+# Debug endpoint to inspect registered pages
+@server.route('/debug/pages')
+def debug_pages():
+    try:
+        return jsonify({'pages': list(dash.page_registry.keys())})
+    except Exception as e:
+        return make_response(jsonify({'error': str(e)}), 500)
 
 # Add local CSS for Material Icons
 
@@ -97,7 +109,7 @@ def build_footer_elements(footer_config):
     
     return footer_elements
 
-def serve_layout():
+def build_layout(*args, **kwargs):
     # Check layout cache first
     global _layout_cache, _layout_cache_timestamp
     
@@ -134,6 +146,14 @@ def serve_layout():
                 html.P(f'Fehler: {str(e)}')
             ])
         
+        # Debug: log registered pages once
+        try:
+            import logging as _logging
+            _logging.getLogger("pages").setLevel(_logging.INFO)
+            _logging.getLogger("pages").info("Registered pages: %s", list(dash.page_registry.keys()))
+        except Exception:
+            pass
+
         # Create layout
         _layout_cache = html.Div([
             html.Header(children = [
@@ -179,7 +199,9 @@ def serve_layout():
     return _layout_cache
 
 # This is the correct way to set the layout - it should be the function itself, not the result of calling it
-app.layout = serve_layout
+app.layout = build_layout
+
+ 
 
 # Health check endpoint
 @server.route('/health')
@@ -202,7 +224,7 @@ def health_check():
         layout_status = "healthy"
         layout_error = None
         try:
-            layout = serve_layout()
+            layout = build_layout()
             if not layout:
                 layout_status = "warning"
                 layout_error = "Empty layout"
@@ -289,6 +311,17 @@ def api_request_otp():
         else:
             print(f"WARN: Konnte Apprise-URL nicht hinzufügen: {apprise_url}")
         return jsonify({'status': 'ok'})
+    except Exception as e:
+        return make_response(jsonify({'error': str(e)}), 500)
+
+@server.route('/api/auth/session', methods=['GET'])
+def api_session_status():
+    try:
+        session_id = request.cookies.get('session_id')
+        user_id = get_user_id_by_session(session_id) if session_id else None
+        if user_id:
+            return jsonify({'status': 'ok'})
+        return make_response(jsonify({'error': 'unauthorized'}), 401)
     except Exception as e:
         return make_response(jsonify({'error': str(e)}), 500)
 
@@ -440,7 +473,13 @@ def api_destinations():
                 if not cur.fetchone():
                     return make_response(jsonify({'error': 'not_found'}), 404)
                 import json as _json
-                payload = _json.dumps(cfg, ensure_ascii=False).encode('utf-8')
+                try:
+                    if 'encrypt_config_json' in globals() and 'is_encryption_ready' in globals() and is_encryption_ready():
+                        payload = encrypt_config_json(cfg)
+                    else:
+                        payload = _json.dumps(cfg, ensure_ascii=False).encode('utf-8')
+                except Exception:
+                    payload = _json.dumps(cfg, ensure_ascii=False).encode('utf-8')
                 cur.execute(
                     "INSERT INTO destinations(profile_id, provider, config_encrypted) VALUES(%s,%s,%s) RETURNING id",
                     (profile_id, provider, payload)
@@ -472,7 +511,18 @@ def api_destination_detail(destination_id: int):
                 import json as _json
                 cfg = {}
                 try:
-                    cfg = _json.loads((r[4] or b'{}').decode('utf-8'))
+                    raw = (r[4] or b'{ }')
+                    if hasattr(raw, 'tobytes'):
+                        raw = raw.tobytes()
+                    # Prefer decrypt when available
+                    if 'decrypt_config_json' in globals() and raw:
+                        dec = decrypt_config_json(bytes(raw))
+                        if dec:
+                            cfg = dec
+                        else:
+                            cfg = _json.loads(bytes(raw).decode('utf-8'))
+                    else:
+                        cfg = _json.loads(bytes(raw).decode('utf-8'))
                 except Exception:
                     cfg = {}
                 return jsonify({'id': r[0], 'profile_id': r[1], 'provider': r[3], 'config': cfg, 'created_at': r[5].isoformat() if r[5] else None})
@@ -486,7 +536,13 @@ def api_destination_detail(destination_id: int):
                     sets.append('provider=%s'); vals.append(provider)
                 if cfg is not None:
                     import json as _json
-                    payload = _json.dumps(cfg, ensure_ascii=False).encode('utf-8')
+                    try:
+                        if 'encrypt_config_json' in globals() and 'is_encryption_ready' in globals() and is_encryption_ready():
+                            payload = encrypt_config_json(cfg)
+                        else:
+                            payload = _json.dumps(cfg, ensure_ascii=False).encode('utf-8')
+                    except Exception:
+                        payload = _json.dumps(cfg, ensure_ascii=False).encode('utf-8')
                     sets.append('config_encrypted=%s'); vals.append(payload)
                 if not sets:
                     return jsonify({'status': 'noop'})
@@ -531,6 +587,100 @@ def api_profile_cis(profile_id: int):
                     )
                 conn.commit()
                 return jsonify({'status': 'ok', 'count': len(ci_list)})
+    except Exception as e:
+        return make_response(jsonify({'error': str(e)}), 500)
+
+@server.route('/api/notifications/test', methods=['POST'])
+def api_notifications_test():
+    session_id = request.cookies.get('session_id')
+    user_id = get_user_id_by_session(session_id) if session_id else None
+    if not user_id:
+        return make_response(jsonify({'error': 'unauthorized'}), 401)
+    try:
+        data = request.get_json(force=True) or {}
+        url = (data.get('url') or '').strip()
+        destination_id = data.get('destination_id')
+        profile_id = data.get('profile_id')
+        title = (data.get('title') or 'TI-Monitoring Test-Benachrichtigung').strip()
+        body = (data.get('body') or 'Dies ist eine Test-Benachrichtigung von TI-Monitoring.').strip()
+
+        urls_to_notify = []
+
+        if url:
+            urls_to_notify.append(url)
+        elif destination_id:
+            with get_db_conn() as conn, conn.cursor() as cur:
+                cur.execute(
+                    "SELECT d.id, d.profile_id, p.user_id, d.provider, d.config_encrypted FROM destinations d JOIN notification_profiles p ON d.profile_id=p.id WHERE d.id=%s",
+                    (destination_id,)
+                )
+                r = cur.fetchone()
+                if not r or str(r[2]) != str(user_id):
+                    return make_response(jsonify({'error': 'not_found'}), 404)
+                import json as _json
+                try:
+                    raw = (r[4] or b'{ }')
+                    if hasattr(raw, 'tobytes'):
+                        raw = raw.tobytes()
+                    if 'decrypt_config_json' in globals() and raw:
+                        dec = decrypt_config_json(bytes(raw))
+                        if dec:
+                            cfg = dec
+                        else:
+                            cfg = _json.loads(bytes(raw).decode('utf-8'))
+                    else:
+                        cfg = _json.loads(bytes(raw).decode('utf-8'))
+                except Exception:
+                    cfg = {}
+                urls = cfg.get('urls') or []
+                urls_to_notify.extend([str(u) for u in urls if u])
+        elif profile_id:
+            with get_db_conn() as conn, conn.cursor() as cur:
+                # ensure ownership
+                cur.execute("SELECT 1 FROM notification_profiles WHERE id=%s AND user_id=%s", (profile_id, user_id))
+                if not cur.fetchone():
+                    return make_response(jsonify({'error': 'not_found'}), 404)
+                cur.execute("SELECT config_encrypted FROM destinations WHERE profile_id=%s", (profile_id,))
+                rows = cur.fetchall()
+                import json as _json
+                for (blob,) in rows:
+                    try:
+                        raw = (blob or b'{ }')
+                        if hasattr(raw, 'tobytes'):
+                            raw = raw.tobytes()
+                        if 'decrypt_config_json' in globals() and raw:
+                            dec = decrypt_config_json(bytes(raw))
+                            if dec:
+                                cfg = dec
+                            else:
+                                cfg = _json.loads(bytes(raw).decode('utf-8'))
+                        else:
+                            cfg = _json.loads(bytes(raw).decode('utf-8'))
+                    except Exception:
+                        cfg = {}
+                    urls = cfg.get('urls') or []
+                    urls_to_notify.extend([str(u) for u in urls if u])
+        else:
+            return make_response(jsonify({'error': 'invalid_payload'}), 400)
+
+        # Deduplicate
+        urls_to_notify = list(dict.fromkeys(urls_to_notify))
+        if not urls_to_notify:
+            return make_response(jsonify({'error': 'no_urls_found'}), 400)
+
+        apobj = apprise.Apprise()
+        added = 0
+        for u in urls_to_notify:
+            try:
+                if apobj.add(u):
+                    added += 1
+            except Exception:
+                pass
+        if added == 0:
+            return make_response(jsonify({'error': 'no_valid_urls'}), 400)
+
+        ok = apobj.notify(title=title, body=body, body_format=apprise.NotifyFormat.TEXT)
+        return jsonify({'status': 'ok' if ok else 'failed', 'targets': added})
     except Exception as e:
         return make_response(jsonify({'error': str(e)}), 500)
 

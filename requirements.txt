@@ -25,3 +25,4 @@ matplotlib>=3.5.0
 
 # YAML support
 PyYAML>=5.4.0
+cryptography>=42.0.0

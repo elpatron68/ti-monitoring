@@ -20,8 +20,9 @@ services:
     volumes:
       - ./config.yaml:/app/config.yaml
       - ./notifications.json:/app/notifications.json
-      - ./.env:/app/.env
       - appdata:/app/data
+    env_file:
+      - .env
     environment:
       - PYTHONPATH=/app
       - POSTGRES_HOST=${POSTGRES_HOST:-db}
@@ -39,6 +40,8 @@ services:
       - ./config.yaml:/app/config.yaml
       - ./notifications.json:/app/notifications.json
       - appdata:/app/data
+    env_file:
+      - .env
     environment:
       - PYTHONPATH=/app
       - DB_HOST=${POSTGRES_HOST:-db}

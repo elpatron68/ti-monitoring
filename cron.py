@@ -545,19 +545,27 @@ def main():
                 # Send notifications every 5 minutes
                 if now_epoch - last_notification_time > 300:  # Every 5 minutes
                     try:
-                        config_notifications_file = os.path.join(os.path.dirname(__file__), 'notifications.json')
-                        if os.path.exists(config_notifications_file):
-                            with open(config_notifications_file, 'r', encoding='utf-8') as f:
-                                notifications_config = json.load(f)
-                            
-                            if notifications_config and len(notifications_config) > 0:
-                                log("Sending notifications...")
-                                send_apprise_notifications('', config_notifications_file, None)  # home_url entfällt
-                                log("Notifications sent successfully")
+                        log("Sending DB-based notifications...")
+                        result = send_db_notifications()
+                        log(f"DB notifications result: {result['message']}")
+                        
+                        # Fallback to file-based notifications if no DB profiles exist
+                        if result['profiles_processed'] == 0:
+                            log("No DB profiles found, trying file-based notifications...")
+                            config_notifications_file = os.path.join(os.path.dirname(__file__), 'notifications.json')
+                            if os.path.exists(config_notifications_file):
+                                with open(config_notifications_file, 'r', encoding='utf-8') as f:
+                                    notifications_config = json.load(f)
+                                
+                                if notifications_config and len(notifications_config) > 0:
+                                    log("Sending file-based notifications...")
+                                    send_apprise_notifications('', config_notifications_file, None)  # home_url entfällt
+                                    log("File-based notifications sent successfully")
+                                else:
+                                    log("No file-based notifications configured")
                             else:
-                                log("No notifications configured")
-                        else:
-                            log("No notifications file found")
+                                log("No notifications file found")
+                        
                         last_notification_time = now_epoch
                     except Exception as e:
                         log(f"ERROR in notifications: {e}")

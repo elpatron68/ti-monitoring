@@ -1,1134 +1,469 @@
 import dash
-from dash import html, dcc, Input, Output, State, callback, no_update, callback_context
-import json
+from dash import html, dcc, callback, Input, Output, State, no_update, clientside_callback, ClientsideFunction
 from mylibrary import *
-import yaml
 import os
-import apprise
-
-# Modern button styles
-MODERN_BUTTON_STYLES = {
-    'primary': {
-        'backgroundColor': '#007bff',
-        'color': 'white',
-        'border': 'none',
-        'padding': '10px 20px',
-        'borderRadius': '8px',
-        'fontSize': '14px',
-        'fontWeight': '500',
-        'cursor': 'pointer',
-        'transition': 'all 0.3s ease',
-        'boxShadow': '0 2px 4px rgba(0, 123, 255, 0.2)',
-        'margin': '5px'
-    },
-    'secondary': {
-        'backgroundColor': '#6c757d',
-        'color': 'white',
-        'border': 'none',
-        'padding': '10px 20px',
-        'borderRadius': '8px',
-        'fontSize': '14px',
-        'fontWeight': '500',
-        'cursor': 'pointer',
-        'transition': 'all 0.3s ease',
-        'boxShadow': '0 2px 4px rgba(108, 117, 125, 0.2)',
-        'margin': '5px'
-    },
-    'success': {
-        'backgroundColor': '#28a745',
-        'color': 'white',
-        'border': 'none',
-        'padding': '10px 20px',
-        'borderRadius': '8px',
-        'fontSize': '14px',
-        'fontWeight': '500',
-        'cursor': 'pointer',
-        'transition': 'all 0.3s ease',
-        'boxShadow': '0 2px 4px rgba(40, 167, 69, 0.2)',
-        'margin': '5px'
-    },
-    'danger': {
-        'backgroundColor': '#dc3545',
-        'color': 'white',
-        'border': 'none',
-        'padding': '10px 20px',
-        'borderRadius': '8px',
-        'fontSize': '14px',
-        'fontWeight': '500',
-        'cursor': 'pointer',
-        'transition': 'all 0.3s ease',
-        'boxShadow': '0 2px 4px rgba(220, 53, 69, 0.2)',
-        'margin': '5px'
-    },
-    'warning': {
-        'backgroundColor': '#ffc107',
-        'color': '#212529',
-        'border': 'none',
-        'padding': '10px 20px',
-        'borderRadius': '8px',
-        'fontSize': '14px',
-        'fontWeight': '500',
-        'cursor': 'pointer',
-        'transition': 'all 0.3s ease',
-        'boxShadow': '0 2px 4px rgba(255, 193, 7, 0.2)',
-        'margin': '5px'
-    }
-}
-
-# Hover effects for buttons
-def get_button_style(button_type='primary'):
-    base_style = MODERN_BUTTON_STYLES[button_type].copy()
-    return base_style
-
-# Error div styles
-def get_error_style(visible=True):
-    base_style = {
-        'color': '#e74c3c', 
-        'marginBottom': '15px',
-        'fontWeight': '500',
-        'padding': '10px',
-        'backgroundColor': '#fdf2f2',
-        'borderRadius': '6px',
-        'border': '1px solid #fecaca'
-    }
-    if visible:
-        base_style['display'] = 'block'
-    else:
-        base_style['display'] = 'none'
-    return base_style
-
-def load_config():
-    """Load configuration from YAML file"""
-    config_path = os.path.join(os.path.dirname(__file__), '..', 'config.yaml')
-    try:
-        with open(config_path, 'r', encoding='utf-8') as f:
-            config = yaml.safe_load(f)
-        return config
-    except FileNotFoundError:
-        return {}
-    except Exception:
-        return {}
-
-def load_core_config():
-    """Load core configuration from YAML file"""
-    config = load_config()
-    return config.get('core', {})
+import json
+import requests
+import hashlib
+import yaml
 
 dash.register_page(__name__, path='/notifications')
 
-# Global variable to store authentication status (in production, use session or database)
-auth_status = {'authenticated': False}
+def get_profile_salt():
+    """Lädt den Profil-Salt aus der .env Datei"""
+    try:
+        return os.getenv('TI_PROFILE_SALT', 'default-salt-change-me')
+    except:
+        return 'default-salt-change-me'
+
+def hash_email_with_salt(email):
+    """Erstellt einen SHA-256 Hash der E-Mail-Adresse mit Salt"""
+    salt = get_profile_salt()
+    return hashlib.sha256((email.lower() + salt).encode('utf-8')).hexdigest()
+
+def load_profiles_from_db(email):
+    """Lädt Profile aus der Datenbank anhand des E-Mail-Hashes"""
+    try:
+        email_hash = hash_email_with_salt(email)
+        
+        with get_db_conn() as conn, conn.cursor() as cur:
+            # Suche User anhand des E-Mail-Hashes
+            cur.execute("SELECT id FROM users WHERE email_hash=%s AND deleted_at IS NULL", (email_hash,))
+            row = cur.fetchone()
+            if not row:
+                return []
+            user_id = row[0]
+            
+            cur.execute(
+                "SELECT id, name, type, created_at, config_encrypted FROM notification_profiles WHERE user_id=%s ORDER BY id DESC",
+                (user_id,)
+            )
+            rows = cur.fetchall()
+            profiles = []
+            for row in rows:
+                profile_id, name, profile_type, created_at, config_encrypted = row
+                
+                # Entschlüssele Profil-Daten
+                urls = []
+                if config_encrypted:
+                    try:
+                        decrypted_data = decrypt_config_json(bytes(config_encrypted))
+                        if decrypted_data and 'urls' in decrypted_data:
+                            urls = decrypted_data['urls']
+                    except Exception as e:
+                        print(f"Fehler beim Entschlüsseln des Profils {profile_id}: {e}")
+                
+                profiles.append({
+                    'id': profile_id,
+                    'name': name,
+                    'type': profile_type,
+                    'urls': urls,
+                    'created_at': created_at.strftime('%Y-%m-%d %H:%M:%S') if created_at else 'Unbekannt'
+                })
+            
+            return profiles
+    except Exception as e:
+        print(f"Fehler beim Laden der Profile: {e}")
+        return []
+
+def save_profile_to_db(email, name, urls, profile_type='whitelist', selected_cis=None):
+    """Speichert ein Profil in der Datenbank"""
+    try:
+        email_hash = hash_email_with_salt(email)
+        
+        with get_db_conn() as conn, conn.cursor() as cur:
+            # Suche oder erstelle User
+            cur.execute("SELECT id FROM users WHERE email_hash=%s AND deleted_at IS NULL", (email_hash,))
+            row = cur.fetchone()
+            if not row:
+                # User erstellen
+                cur.execute("INSERT INTO users (email_hash, created_at) VALUES (%s, NOW()) RETURNING id", (email_hash,))
+                user_id = cur.fetchone()[0]
+            else:
+                user_id = row[0]
+            
+            # Verschlüssele Profil-Daten
+            config_data = {'urls': urls}
+            if selected_cis:
+                config_data['selected_cis'] = selected_cis
+            config_encrypted = encrypt_config_json(config_data)
+            
+            # Profil speichern
+            cur.execute(
+                "INSERT INTO notification_profiles (user_id, name, type, config_encrypted, created_at) VALUES (%s, %s, %s, %s, NOW())",
+                (user_id, name, profile_type, config_encrypted)
+            )
+            conn.commit()
+            
+            return {'success': True, 'message': f'Profil "{name}" wurde erfolgreich gespeichert!'}
+    except Exception as e:
+        print(f"Fehler beim Speichern des Profils: {e}")
+        return {'success': False, 'error': str(e)}
+
+def delete_profile_from_db(email, profile_id):
+    """Löscht ein Profil aus der Datenbank"""
+    try:
+        email_hash = hash_email_with_salt(email)
+        
+        with get_db_conn() as conn, conn.cursor() as cur:
+            # Suche User
+            cur.execute("SELECT id FROM users WHERE email_hash=%s AND deleted_at IS NULL", (email_hash,))
+            row = cur.fetchone()
+            if not row:
+                return {'success': False, 'error': 'User nicht gefunden'}
+            user_id = row[0]
+            
+            # Lösche Profil
+            cur.execute(
+                "DELETE FROM notification_profiles WHERE id=%s AND user_id=%s",
+                (profile_id, user_id)
+            )
+            conn.commit()
+            
+            return {'success': True, 'message': 'Profil wurde erfolgreich gelöscht!'}
+    except Exception as e:
+        print(f"Fehler beim Löschen des Profils: {e}")
+        return {'success': False, 'error': str(e)}
 
 def serve_layout():
-    layout = html.Div([
-        html.H2('Benachrichtigungseinstellungen', style={
-            'color': '#2c3e50',
-            'fontWeight': '600',
-            'marginBottom': '30px',
-            'borderBottom': '2px solid #3498db',
-            'paddingBottom': '10px'
-        }),
-        # Store for authentication status (persistent in browser)
-        dcc.Store(id='auth-status', storage_type='local', data=auth_status),
+    return html.Div([
         
-        # Login form (shown when not authenticated)
-        html.Div(id='login-container', children=[
-            html.H3('Anmeldung erforderlich', style={'color': '#2c3e50', 'marginBottom': '20px'}),
-            html.P('Bitte geben Sie das Passwort ein, um auf die Benachrichtigungseinstellungen zuzugreifen.', style={'color': '#7f8c8d', 'marginBottom': '20px'}),
-            dcc.Input(
-                id='password-input',
-                type='password',
-                placeholder='Passwort eingeben',
-                style={
-                    'width': '100%', 
-                    'marginBottom': '15px',
-                    'padding': 'clamp(8px, 2vw, 12px)',
-                    'border': '2px solid #e9ecef',
-                    'borderRadius': '8px',
-                    'fontSize': 'clamp(12px, 2.5vw, 14px)',
-                    'transition': 'border-color 0.3s ease',
-                    'boxSizing': 'border-box'
-                }
-            ),
-            html.Button('Anmelden', id='login-button', n_clicks=0, style=get_button_style('primary')),
-            html.Div(id='login-error', style={'color': '#e74c3c', 'marginTop': '15px', 'fontWeight': '500'})
-        ], style={
-            'width': '100%',
-            'maxWidth': '900px',
-            'margin': '0 auto',
-            'padding': 'clamp(20px, 4vw, 30px)',
-            'backgroundColor': 'white',
-            'borderRadius': '12px',
-            'boxShadow': '0 4px 6px rgba(0, 0, 0, 0.1)',
-            'boxSizing': 'border-box'
-        }),
+        # Auth status store - mit session_storage für Persistierung
+        dcc.Store(id='auth-status', data={'authenticated': False}, storage_type='session'),
         
-        # Settings interface (hidden when not authenticated)
-        html.Div(id='settings-container', children=[
-            html.P('Verwalten Sie Ihre Benachrichtigungsprofile unten.', style={
-                'color': '#7f8c8d',
-                'fontSize': '16px',
-                'marginBottom': '25px'
-            }),
+        # User ID store
+        dcc.Store(id='user-id-store', data=None, storage_type='session'),
+        
+        # Profiles store
+        dcc.Store(id='profiles-store', data=[]),
+        
+        # Main content
+        html.Div([
+            html.H1('Benachrichtigungseinstellungen', className='mb-4'),
             
-            # Display existing profiles
-            html.Div(id='profiles-container'),
-            
-            # Add new profile button
-            html.Button('Neues Profil hinzufügen', id='add-profile-button', n_clicks=0, style=get_button_style('success')),
-            
-            # Profile form (hidden by default)
-            html.Div(id='profile-form-container', children=[
-                html.H3('Profildetails', style={
-                    'color': '#2c3e50',
-                    'marginBottom': '20px',
-                    'borderBottom': '2px solid #3498db',
-                    'paddingBottom': '10px'
-                }),
-                dcc.Store(id='editing-profile-index'),
-                dcc.Store(id='available-cis-data'),
-                dcc.Store(id='selected-cis-data', data=[]),
-                dcc.Store(id='ci-filter-text', data=''),
-                dcc.Input(
-                    id='profile-name-input',
-                    placeholder='Profilname',
-                    style={
-                        'width': '100%', 
-                        'marginBottom': '15px',
-                        'padding': '12px',
-                        'border': '2px solid #e9ecef',
-                        'borderRadius': '8px',
-                        'fontSize': '14px',
-                        'transition': 'border-color 0.3s ease',
-                        'boxSizing': 'border-box'
-                    }
-                ),
+            # Login form
+            html.Div(id='login-form', children=[
+                html.H3('Anmelden'),
+                html.P('Geben Sie Ihre E-Mail-Adresse ein, um einen Einmalcode zu erhalten.'),
                 html.Div([
-                    html.Label('Benachrichtigungstyp:', style={
-                        'display': 'block',
-                        'marginBottom': '10px',
-                        'fontWeight': '500',
-                        'color': '#2c3e50'
-                    }),
-                    dcc.RadioItems(
-                        id='notification-type-radio',
-                        options=[
-                            {'label': 'Whitelist', 'value': 'whitelist'},
-                            {'label': 'Blacklist', 'value': 'blacklist'}
-                        ],
-                        value='whitelist',
-                        inline=True,
-                        style={
-                            'marginBottom': '15px',
-                            'width': '100%',
-                            'display': 'flex',
-                            'gap': '20px'
-                        }
-                    )
-                ], style={
-                    'marginBottom': '15px',
-                    'width': '100%'
-                }),
+                    html.Label('E-Mail-Adresse:', className='form-label'),
+                    dcc.Input(
+                        id='email-input',
+                        type='email',
+                        placeholder='ihre@email.com',
+                        className='form-control mb-3'
+                    ),
+                    html.Button('Einmalcode anfordern', id='request-otp-button', className='btn btn-primary mb-3'),
+                    html.Div(id='otp-request-result')
+                ]),
                 html.Div([
-                    html.Label('Konfigurationsobjekte:', style={
-                        'display': 'block',
-                        'marginBottom': '10px',
-                        'fontWeight': '500',
-                        'color': '#2c3e50'
-                    }),
+                    html.Label('Einmalcode:', className='form-label'),
+                    dcc.Input(
+                        id='otp-input',
+                        type='text',
+                        placeholder='123456',
+                        className='form-control mb-3'
+                    ),
+                    html.Button('Anmelden', id='verify-otp-button', className='btn btn-success mb-3'),
+                    html.Div(id='login-error')
+                ])
+            ]),
+            
+            # Authenticated content
+            html.Div(id='authenticated-content', style={'display': 'none'}, children=[
+                html.H3('Willkommen!'),
+                html.P('Sie sind erfolgreich angemeldet.'),
+                html.Button('Abmelden', id='logout-button', className='btn btn-secondary mb-4'),
+                
+                # Profile management
+                html.H4('Profil-Verwaltung'),
+                html.Button('Neues Profil anlegen', id='add-profile-button', className='btn btn-primary mb-3'),
+                
+                # Profile form
+                html.Div(id='profile-form', style={'display': 'none'}, children=[
+                    html.H5('Profil erstellen'),
                     html.Div([
+                        html.Label('Profilname:', className='form-label'),
                         dcc.Input(
-                            id='ci-filter-input',
+                            id='profile-name',
                             type='text',
-                            placeholder='CIs filtern (z.B. "CI-0000" oder "gematik")',
-                            style={
-                                'flex': '1',
-                                'minWidth': '0',
-                                'padding': '8px 12px',
-                                'border': '2px solid #e9ecef',
-                                'borderRadius': '6px',
-                                'fontSize': '14px',
-                                'marginRight': '10px',
-                                'transition': 'border-color 0.3s ease',
-                                'boxSizing': 'border-box'
-                            }
+                            placeholder='Mein Profil',
+                            className='form-control mb-3'
                         ),
-                        html.Button('Alle aktivieren', id='select-all-cis-button', n_clicks=0, style=get_button_style('secondary')),
-                        html.Button('Alle deaktivieren', id='deselect-all-cis-button', n_clicks=0, style=get_button_style('secondary'))
-                    ], style={
-                        'display': 'flex',
-                        'gap': '10px',
-                        'marginBottom': '10px',
-                        'alignItems': 'center',
-                        'width': '100%',
-                        'boxSizing': 'border-box'
-                    }),
-                    html.Div(id='ci-filter-info', style={
-                        'width': '100%',
-                        'fontSize': '12px',
-                        'color': '#7f8c8d',
-                        'marginBottom': '8px',
-                        'fontStyle': 'italic'
-                    }),
-                    html.Div(id='ci-checkboxes-container', style={
-                        'width': '100%',
-                        'maxHeight': '200px',
-                        'overflowY': 'auto',
-                        'border': '2px solid #e9ecef',
-                        'borderRadius': '8px',
-                        'padding': '15px',
-                        'backgroundColor': '#f8f9fa',
-                        'boxSizing': 'border-box'
-                    })
-                ], style={
-                    'marginBottom': '15px',
-                    'width': '100%'
-                }),
-                dcc.Textarea(
-                    id='apprise-urls-textarea',
-                    placeholder='Apprise URLs (eine pro Zeile)',
-                    style={
-                        'width': '100%', 
-                        'height': '100px', 
-                        'marginBottom': '15px',
-                        'padding': '12px',
-                        'border': '2px solid #e9ecef',
-                        'borderRadius': '8px',
-                        'fontSize': '14px',
-                        'fontFamily': 'monospace',
-                        'resize': 'vertical',
-                        'transition': 'border-color 0.3s ease',
-                        'boxSizing': 'border-box'
-                    }
-                ),
-                html.Div(id='form-error', style={
-                    **get_error_style(visible=False),
-                    'width': '100%'
-                }),
-                html.Div([
-                    html.Button('Profil speichern', id='save-profile-button', n_clicks=0, style=get_button_style('success')),
-                    html.Button('Abbrechen', id='cancel-profile-button', n_clicks=0, style=get_button_style('secondary'))
-                ], style={
-                    'display': 'flex', 
-                    'gap': '10px',
-                    'justifyContent': 'flex-end',
-                    'width': '100%'
-                })
-            ], style={
-                'display': 'none',
-                'width': '100%',
-                'backgroundColor': 'white',
-                'padding': 'clamp(15px, 3vw, 25px)',
-                'borderRadius': '12px',
-                'boxShadow': '0 4px 6px rgba(0, 0, 0, 0.1)',
-                'marginTop': '20px',
-                'border': '1px solid #e9ecef'
-            }),
-            
-            # Delete confirmation modal
-            dcc.ConfirmDialog(
-                id='delete-confirm',
-                message='Sind Sie sicher, dass Sie dieses Profil löschen möchten?'
-            ),
-            
-            # Store for delete index
-            dcc.Store(id='delete-index-store', data=None),
-            # Test Apprise notification button
-            html.Div([
-                html.H3('Apprise-Benachrichtigung testen', style={
-                    'color': '#2c3e50',
-                    'marginBottom': '15px',
-                    'borderBottom': '2px solid #3498db',
-                    'paddingBottom': '10px'
-                }),
-                html.P('Geben Sie eine Apprise-URL ein, um zu testen, ob Ihr Benachrichtigungssystem funktioniert.', style={
-                    'color': '#7f8c8d',
-                    'marginBottom': '15px'
-                }),
-                dcc.Input(
-                    id='test-apprise-url',
-                    type='text',
-                    placeholder='e.g., mmost://username:password@mattermost.medisoftware.org/channel',
-                    style={
-                        'width': '100%', 
-                        'marginBottom': '15px',
-                        'padding': '12px',
-                        'border': '2px solid #e9ecef',
-                        'borderRadius': '8px',
-                        'fontSize': '14px',
-                        'fontFamily': 'monospace',
-                        'transition': 'border-color 0.3s ease',
-                        'boxSizing': 'border-box'
-                    }
-                ),
-                html.Button('Benachrichtigung testen', id='test-notification-button', n_clicks=0, style=get_button_style('warning')),
-                html.Div(id='test-result', style={
-                    'width': '100%',
-                    'marginTop': '15px'
-                })
-            ], style={
-                'width': '100%',
-                'marginTop': '30px', 
-                'padding': 'clamp(15px, 3vw, 25px)', 
-                'border': '1px solid #e9ecef', 
-                'borderRadius': '12px',
-                'backgroundColor': 'white',
-                'boxShadow': '0 2px 4px rgba(0, 0, 0, 0.05)'
-            })
-        ], style={'display': 'none'})
-            ], style={
-            'width': '100%',
-            'maxWidth': '900px',
-            'minWidth': '320px',
-            'margin': '0 auto',
-            'padding': 'clamp(10px, 3vw, 20px)',
-            'fontFamily': '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
-            'boxSizing': 'border-box'
-        })
-    
-    return layout
+                        html.Label('Profil-Typ:', className='form-label'),
+                        dcc.Dropdown(
+                            id='profile-type',
+                            options=[
+                                {'label': 'Whitelist (nur ausgewählte CIs)', 'value': 'whitelist'},
+                                {'label': 'Blacklist (alle außer ausgewählte CIs)', 'value': 'blacklist'}
+                            ],
+                            value='whitelist',
+                            className='mb-3'
+                        ),
+                        html.Label('Konfigurationsobjekte:', className='form-label'),
+                        html.Div([
+                            dcc.Input(
+                                id='ci-filter-input',
+                                type='text',
+                                placeholder='CIs filtern (z.B. "CI-0000" oder "gematik")',
+                                className='form-control mb-2'
+                            ),
+                            html.Div([
+                                html.Button('Alle aktivieren', id='select-all-cis-button', className='btn btn-outline-secondary btn-sm me-2'),
+                                html.Button('Alle deaktivieren', id='deselect-all-cis-button', className='btn btn-outline-secondary btn-sm')
+                            ], className='mb-2'),
+                            html.Div(id='ci-checkboxes-container', className='border p-3 mb-3', style={'maxHeight': '200px', 'overflowY': 'auto'})
+                        ]),
+                        html.Label('Benachrichtigungs-URLs (eine pro Zeile):', className='form-label'),
+                        dcc.Textarea(
+                            id='profile-urls',
+                            placeholder='https://api.telegram.org/bot<TOKEN>/sendMessage?chat_id=<CHAT_ID>&text=...\nhttps://hooks.slack.com/services/...',
+                            className='form-control mb-3',
+                            rows=4
+                        ),
+                        html.Div([
+                            html.Button('Speichern', id='save-profile-button', className='btn btn-success me-2'),
+                            html.Button('Abbrechen', id='cancel-profile-button', className='btn btn-secondary')
+                        ])
+                    ])
+                ]),
+                
+                # Profiles container
+                html.Div(id='profiles-container')
+            ])
+        ], className='container mt-4')
+    ])
 
 layout = serve_layout
 
-# Callback to handle login
+# OTP request callback
 @callback(
-    [Output('login-container', 'style'),
-     Output('settings-container', 'style'),
-     Output('login-error', 'children'),
-     Output('auth-status', 'data')],
-    [Input('login-button', 'n_clicks')],
-    [State('password-input', 'value'),
-     State('auth-status', 'data')]
+    Output('otp-request-result', 'children'),
+    Input('request-otp-button', 'n_clicks'),
+    State('email-input', 'value'),
+    prevent_initial_call=True
 )
-def handle_login(n_clicks, password, auth_data):
-    if n_clicks and n_clicks > 0:
-        if password:
-            if validate_password(password):
-                auth_data['authenticated'] = True
-                return [{'display': 'none'}, {'display': 'block'}, '', auth_data]
-            else:
-                return [no_update, no_update, 'Ungültiges Passwort. Bitte versuchen Sie es erneut.', auth_data]
-        else:
-            return [no_update, no_update, 'Bitte geben Sie ein Passwort ein.', auth_data]
-    return [no_update, no_update, '', auth_data]
-
-
-
-# Callback to handle Enter key in password input
-@callback(
-    Output('login-button', 'n_clicks'),
-    [Input('password-input', 'n_submit')],
-    [State('login-button', 'n_clicks')]
-)
-def handle_enter_key(n_submit, current_clicks):
-    if n_submit and n_submit > 0:
-        return (current_clicks or 0) + 1
-    return current_clicks
-
-# Callback to load all available CIs
-@callback(
-    Output('available-cis-data', 'data'),
-    [Input('auth-status', 'data')]
-)
-def load_available_cis(auth_data):
-    if not auth_data or not auth_data.get('authenticated', False):
-        return []
+def handle_otp_request(n_clicks, email):
+    if not n_clicks or not email:
+        return ""
     
     try:
-        # Try to load CIs from the JSON file first (faster)
-        ci_list_file_path = os.path.join(os.path.dirname(__file__), '..', 'data', 'ci_list.json')
+        # Call the API to request OTP
+        response = requests.post('http://localhost:8050/api/auth/request_otp', 
+                               json={'email': email}, 
+                               timeout=10)
         
-        if os.path.exists(ci_list_file_path):
-            try:
-                with open(ci_list_file_path, 'r', encoding='utf-8') as f:
-                    ci_list = json.load(f)
-                print(f"Loaded {len(ci_list)} CIs from JSON file")
-                return ci_list
-            except Exception as e:
-                print(f"Error loading from JSON file: {e}, falling back to TimescaleDB")
-        
-        # Fallback: Load from TimescaleDB if JSON doesn't exist or fails
-        from mylibrary import get_data_of_all_cis
-        cis_df = get_data_of_all_cis('')  # file_name parameter not used anymore
-        
-        if not cis_df.empty:
-            # Convert to list of dictionaries with ci and name
-            ci_list = []
-            for _, row in cis_df.iterrows():
-                ci_info = {
-                    'ci': str(row.get('ci', '')),
-                    'name': str(row.get('name', '')),
-                    'organization': str(row.get('organization', '')),
-                    'product': str(row.get('product', ''))
-                }
-                ci_list.append(ci_info)
-            return ci_list
-        else:
-            return []
-    except Exception as e:
-        print(f"Error loading CIs: {e}")
-        return []
-
-# Callback to render CI checkboxes
-@callback(
-    Output('ci-checkboxes-container', 'children'),
-    [Input('available-cis-data', 'data'),
-     Input('editing-profile-index', 'data'),
-     Input('ci-filter-text', 'data')],
-    [State('auth-status', 'data')]
-)
-def render_ci_checkboxes(cis_data, editing_index, filter_text, auth_data):
-    if not auth_data or not auth_data.get('authenticated', False) or not cis_data:
-        return html.P('Loading CIs...', style={'color': '#7f8c8d', 'textAlign': 'center'})
-    
-    try:
-        # Load existing profile data if editing
-        selected_cis = []
-        if editing_index is not None:
-            core_config = load_core_config()
-            config_file = core_config.get('notifications_config_file', 'notifications.json')
-            config = get_notification_config(config_file)
-            if 0 <= editing_index < len(config):
-                selected_cis = config[editing_index].get('ci_list', [])
-        
-        # Filter CIs based on filter text
-        filtered_cis = []
-        if filter_text and filter_text.strip():
-            filter_lower = filter_text.lower().strip()
-            for ci_info in cis_data:
-                ci_id = ci_info.get('ci', '').lower()
-                ci_name = ci_info.get('name', '').lower()
-                ci_org = ci_info.get('organization', '').lower()
-                ci_product = ci_info.get('product', '').lower()
-                
-                # Check if any field contains the filter text
-                if (filter_lower in ci_id or 
-                    filter_lower in ci_name or 
-                    filter_lower in ci_org or 
-                    filter_lower in ci_product):
-                    filtered_cis.append(ci_info)
-        else:
-            # No filter, show all CIs
-            filtered_cis = cis_data
-        
-        # Create checkboxes for each filtered CI
-        checkbox_children = []
-        for ci_info in filtered_cis:
-            ci_id = ci_info.get('ci', '')
-            ci_name = ci_info.get('name', '')
-            ci_org = ci_info.get('organization', '')
-            ci_product = ci_info.get('product', '')
-            
-            # Check if this CI is selected
-            is_checked = ci_id in selected_cis
-            
-            # Create checkbox with label
-            checkbox = html.Div([
-                dcc.Checklist(
-                    id={'type': 'ci-checkbox', 'ci': ci_id},
-                    options=[{'label': '', 'value': ci_id}],
-                    value=[ci_id] if is_checked else [],
-                    style={'marginRight': '10px'}
-                ),
-                html.Label([
-                    html.Strong(ci_id),
-                    html.Br(),
-                    html.Span(f"{ci_name}", style={'color': '#2c3e50', 'fontSize': '14px'}),
-                    html.Br(),
-                    html.Span(f"{ci_org} - {ci_product}", style={'color': '#7f8c8d', 'fontSize': '12px'})
-                ], style={'cursor': 'pointer', 'marginLeft': '5px'})
-            ], style={
-                'display': 'flex',
-                'alignItems': 'flex-start',
-                'marginBottom': '10px',
-                'padding': '8px',
-                'borderRadius': '6px',
-                'backgroundColor': 'white',
-                'border': '1px solid #e9ecef'
-            })
-            
-            checkbox_children.append(checkbox)
-        
-        if not checkbox_children:
-            return html.P('No CIs found', style={'color': '#7f8c8d', 'textAlign': 'center'})
-        
-        return checkbox_children
-        
-    except Exception as e:
-        return html.P(f'Error loading CIs: {str(e)}', style={'color': '#e74c3c', 'textAlign': 'center'})
-
-# Callback to reset selected CIs when form is opened/closed
-@callback(
-    Output('selected-cis-data', 'data', allow_duplicate=True),
-    [Input('profile-form-container', 'style')],
-    [State('editing-profile-index', 'data')],
-    prevent_initial_call=True
-)
-def reset_selected_cis(form_style, editing_index):
-    """Reset selected CIs when form is opened or closed"""
-    if form_style and form_style.get('display') == 'none':
-        # Form is closed, reset selection
-        return []
-    elif editing_index is not None:
-        # Form is opened for editing, load existing selection
-        try:
-            core_config = load_core_config()
-            config_file = core_config.get('notifications_config_file', 'notifications.json')
-            config = get_notification_config(config_file)
-            if 0 <= editing_index < len(config):
-                return config[editing_index].get('ci_list', [])
-        except Exception:
-            pass
-    return []
-
-# Callback to select all CIs
-@callback(
-    Output('selected-cis-data', 'data', allow_duplicate=True),
-    [Input('select-all-cis-button', 'n_clicks')],
-    [State('available-cis-data', 'data')],
-    prevent_initial_call=True
-)
-def select_all_cis(n_clicks, available_cis_data):
-    """Select all available CIs"""
-    if not n_clicks or not available_cis_data:
-        return no_update
-    
-    # Get all CI IDs from available CIs
-    all_ci_ids = [ci_info.get('ci', '') for ci_info in available_cis_data if ci_info.get('ci')]
-    return all_ci_ids
-
-# Callback to deselect all CIs
-@callback(
-    Output('selected-cis-data', 'data', allow_duplicate=True),
-    [Input('deselect-all-cis-button', 'n_clicks')],
-    prevent_initial_call=True
-)
-def deselect_all_cis(n_clicks):
-    """Deselect all CIs"""
-    if not n_clicks:
-        return no_update
-    
-    # Return empty list to deselect all
-    return []
-
-# Callback to store filter text
-@callback(
-    Output('ci-filter-text', 'data'),
-    [Input('ci-filter-input', 'value')],
-    prevent_initial_call=True
-)
-def update_filter_text(filter_text):
-    """Store the filter text for CI filtering"""
-    return filter_text or ''
-
-# Callback to update filter info display
-@callback(
-    Output('ci-filter-info', 'children'),
-    [Input('ci-filter-text', 'data'),
-     Input('available-cis-data', 'data')]
-)
-def update_filter_info(filter_text, available_cis_data):
-    """Update the filter information display"""
-    if not available_cis_data:
-        return ''
-    
-    total_cis = len(available_cis_data)
-    
-    if not filter_text or not filter_text.strip():
-        return f'Zeige alle {total_cis} Configuration Items'
-    
-    # Count filtered results
-    filter_lower = filter_text.lower().strip()
-    filtered_count = 0
-    for ci_info in available_cis_data:
-        ci_id = ci_info.get('ci', '').lower()
-        ci_name = ci_info.get('name', '').lower()
-        ci_org = ci_info.get('organization', '').lower()
-        ci_product = ci_info.get('product', '').lower()
-        
-        if (filter_lower in ci_id or 
-            filter_lower in ci_name or 
-            filter_lower in ci_org or 
-            filter_lower in ci_product):
-            filtered_count += 1
-    
-    return f'Filter: "{filter_text}" - {filtered_count} von {total_cis} CIs angezeigt'
-
-# Callback to collect selected CIs from checkboxes
-@callback(
-    Output('selected-cis-data', 'data'),
-    [Input({'type': 'ci-checkbox', 'ci': dash.ALL}, 'value')],
-    [State('available-cis-data', 'data')],
-    prevent_initial_call=True
-)
-def update_selected_cis(checkbox_values, available_cis_data):
-    """Update the selected CIs when checkboxes change"""
-    if not available_cis_data:
-        return []
-    
-    # Collect all selected CIs from the checkbox values
-    selected_cis = []
-    for checkbox_value in checkbox_values:
-        if checkbox_value:  # If checkbox has a value (is checked)
-            selected_cis.extend(checkbox_value)
-    
-    # Remove duplicates
-    selected_cis = list(set(selected_cis))
-    
-    return selected_cis
-
-# Callback to update checkbox states when selected-cis-data changes
-@callback(
-    Output('ci-checkboxes-container', 'children', allow_duplicate=True),
-    [Input('selected-cis-data', 'data')],
-    [State('available-cis-data', 'data'),
-     State('editing-profile-index', 'data'),
-     State('ci-filter-text', 'data')],
-    prevent_initial_call=True
-)
-def update_checkbox_states(selected_cis, available_cis_data, editing_index, filter_text):
-    """Update all checkbox states when selected-cis-data changes"""
-    if not available_cis_data:
-        return no_update
-    
-    try:
-        # Load existing profile data if editing
-        existing_selected_cis = []
-        if editing_index is not None:
-            core_config = load_core_config()
-            config_file = core_config.get('notifications_config_file', 'notifications.json')
-            config = get_notification_config(config_file)
-            if 0 <= editing_index < len(config):
-                existing_selected_cis = config[editing_index].get('ci_list', [])
-        
-        # Use current selection from store, fallback to existing if editing
-        current_selected_cis = selected_cis if selected_cis is not None else existing_selected_cis
-        
-        # Filter CIs based on filter text
-        filtered_cis = []
-        if filter_text and filter_text.strip():
-            filter_lower = filter_text.lower().strip()
-            for ci_info in available_cis_data:
-                ci_id = ci_info.get('ci', '').lower()
-                ci_name = ci_info.get('name', '').lower()
-                ci_org = ci_info.get('organization', '').lower()
-                ci_product = ci_info.get('product', '').lower()
-                
-                # Check if any field contains the filter text
-                if (filter_lower in ci_id or 
-                    filter_lower in ci_name or 
-                    filter_lower in ci_org or 
-                    filter_lower in ci_product):
-                    filtered_cis.append(ci_info)
-        else:
-            # No filter, show all CIs
-            filtered_cis = available_cis_data
-        
-        # Create checkboxes for each filtered CI
-        checkbox_children = []
-        for ci_info in filtered_cis:
-            ci_id = ci_info.get('ci', '')
-            ci_name = ci_info.get('name', '')
-            ci_org = ci_info.get('organization', '')
-            ci_product = ci_info.get('product', '')
-            
-            # Check if this CI is selected
-            is_checked = ci_id in current_selected_cis
-            
-            # Create checkbox with label
-            checkbox = html.Div([
-                dcc.Checklist(
-                    id={'type': 'ci-checkbox', 'ci': ci_id},
-                    options=[{'label': '', 'value': ci_id}],
-                    value=[ci_id] if is_checked else [],
-                    style={'marginRight': '10px'}
-                ),
-                html.Label([
-                    html.Strong(ci_id),
-                    html.Br(),
-                    html.Span(f"{ci_name}", style={'color': '#2c3e50', 'fontSize': '14px'}),
-                    html.Br(),
-                    html.Span(f"{ci_org} - {ci_product}", style={'color': '#7f8c8d', 'fontSize': '12px'})
-                ], style={'cursor': 'pointer', 'marginLeft': '5px'})
-            ], style={
-                'display': 'flex',
-                'alignItems': 'flex-start',
-                'marginBottom': '10px',
-                'padding': '8px',
-                'borderRadius': '6px',
-                'backgroundColor': 'white',
-                'border': '1px solid #e9ecef'
-            })
-            
-            checkbox_children.append(checkbox)
-        
-        if not checkbox_children:
-            return html.P('No CIs found', style={'color': '#7f8c8d', 'textAlign': 'center'})
-        
-        return checkbox_children
-        
-    except Exception as e:
-        return html.P(f'Error updating checkboxes: {str(e)}', style={'color': '#e74c3c', 'textAlign': 'center'})
-
-# Callback to load and display profiles
-@callback(
-    Output('profiles-container', 'children'),
-    [Input('auth-status', 'data'),
-     Input('save-profile-button', 'n_clicks'),
-     Input('delete-confirm', 'submit_n_clicks')]
-)
-def display_profiles(auth_data, save_clicks, delete_clicks):
-    if not auth_data.get('authenticated', False):
-        return []
-    
-    # Load core configurations
-    core_config = load_core_config()
-    config_notifications_config_file = core_config.get('notifications_config_file', 'notifications.json')
-    
-    try:
-        config = get_notification_config(config_notifications_config_file)
-        if not config:
-            return html.P('Keine Benachrichtigungsprofile gefunden. Fügen Sie ein neues Profil hinzu, um zu beginnen.')
-        
-        profile_cards = []
-        for i, profile in enumerate(config):
-            # Count items
-            ci_count = len(profile.get('ci_list', []))
-            url_count = len(profile.get('apprise_urls', []))
-            
-            card = html.Div([
-                html.H4(profile.get('name', 'Unbenanntes Profil'), style={
-                    'color': '#2c3e50',
-                    'marginBottom': '15px',
-                    'fontWeight': '600',
-                    'borderBottom': '1px solid #ecf0f1',
-                    'paddingBottom': '10px'
-                }),
-                html.Div([
-                    html.P(f"Typ: {profile.get('type', 'whitelist').title()}", style={
-                        'color': '#7f8c8d',
-                        'margin': '5px 0',
-                        'fontSize': '14px'
-                    }),
-                    html.P(f"Konfigurationsobjekte: {ci_count}", style={
-                        'color': '#7f8c8d',
-                        'margin': '5px 0',
-                        'fontSize': '14px'
-                    }),
-                    html.P(f"Benachrichtigungs-URLs: {url_count}", style={
-                        'color': '#7f8c8d',
-                        'margin': '5px 0',
-                        'fontSize': '14px'
-                    })
-                ], style={'marginBottom': '20px'}),
-                html.Div([
-                    html.Button('Bearbeiten', id={'type': 'edit-profile', 'index': i}, n_clicks=0, style=get_button_style('secondary')),
-                    html.Button('Löschen', id={'type': 'delete-profile', 'index': i}, n_clicks=0, 
-                               style=get_button_style('danger'))
-                ], style={
-                    'display': 'flex', 
-                    'gap': '10px',
-                    'justifyContent': 'flex-end',
-                    'width': '100%'
-                })
-            ], className='profile-card', style={
-                'width': '100%',
-                'backgroundColor': 'white',
-                'padding': 'clamp(15px, 3vw, 25px)',
-                'borderRadius': '12px',
-                'boxShadow': '0 2px 4px rgba(0, 0, 0, 0.1)',
-                'marginBottom': '20px',
-                'border': '1px solid #e9ecef',
-                'transition': 'transform 0.2s ease, box-shadow 0.2s ease'
-            })
-            
-            profile_cards.append(card)
-        
-        # Wrap profile cards in a container with consistent width
-        return html.Div(profile_cards, style={
-            'width': '100%',
-            'display': 'flex',
-            'flexDirection': 'column',
-            'gap': '20px'
-        })
-    except Exception as e:
-        return html.P(f'Fehler beim Laden der Profile: {str(e)}')
-
-# Callback to show profile form
-@callback(
-    [Output('profile-form-container', 'style'),
-     Output('editing-profile-index', 'data'),
-     Output('profile-name-input', 'value'),
-     Output('notification-type-radio', 'value'),
-     Output('apprise-urls-textarea', 'value')],
-    [Input('add-profile-button', 'n_clicks'),
-     Input({'type': 'edit-profile', 'index': dash.ALL}, 'n_clicks')],
-    [State('auth-status', 'data')]
-)
-def show_profile_form(add_clicks, edit_clicks, auth_data):
-    if not auth_data.get('authenticated', False):
-        return [{'display': 'none'}, None, '', 'whitelist', '']
-    
-    # Check if add button was clicked
-    ctx = callback_context
-    if not ctx.triggered:
-        return [{'display': 'none'}, None, '', 'whitelist', '']
-    
-    button_id = ctx.triggered[0]['prop_id'].split('.')[0]
-    
-    if button_id == 'add-profile-button':
-        # Show empty form for new profile
-        return [{'display': 'block'}, None, '', 'whitelist', '']
-    else:
-        # Show form with existing profile data for editing
-        try:
-            button_data = json.loads(button_id.replace("'", '"'))
-            index = button_data['index']
-            
-            # Load core configurations
-            core_config = load_core_config()
-            config_notifications_config_file = core_config.get('notifications_config_file', 'notifications.json')
-            
-            config = get_notification_config(config_notifications_config_file)
-            if 0 <= index < len(config):
-                profile = config[index]
-                name = profile.get('name', '')
-                notification_type = profile.get('type', 'whitelist')
-                apprise_urls = '\n'.join(profile.get('apprise_urls', []))
-                
-                return [{'display': 'block'}, index, name, notification_type, apprise_urls]
-        except Exception:
-            pass
-    
-    return [{'display': 'none'}, None, '', 'whitelist', '']
-
-# Callback to save profile
-@callback(
-    [Output('profile-form-container', 'style', allow_duplicate=True),
-     Output('form-error', 'children'),
-     Output('form-error', 'style'),
-     Output('save-profile-button', 'n_clicks')],
-    [Input('save-profile-button', 'n_clicks'),
-     Input('cancel-profile-button', 'n_clicks')],
-    [State('editing-profile-index', 'data'),
-     State('profile-name-input', 'value'),
-     State('notification-type-radio', 'value'),
-     State('apprise-urls-textarea', 'value'),
-     State('selected-cis-data', 'data'),
-     State('auth-status', 'data')],
-    prevent_initial_call=True
-)
-def handle_profile_form(save_clicks, cancel_clicks, edit_index, name, notification_type, apprise_urls, selected_cis, auth_data):
-    # Check which button was clicked
-    ctx = callback_context
-    if not ctx.triggered:
-        return [no_update, '', get_error_style(visible=False), 0]
-    
-    button_id = ctx.triggered[0]['prop_id'].split('.')[0]
-    
-    # Handle cancel button
-    if button_id == 'cancel-profile-button':
-        return [{'display': 'none'}, '', get_error_style(visible=False), 0]
-    
-    # Handle save button
-    if button_id == 'save-profile-button' and save_clicks > 0:
-        # Validate inputs
-        if not name:
-            return [no_update, 'Profile name is required.', get_error_style(visible=True), 0]
-        
-        # Get selected CIs from the selected-cis-data store
-        ci_items = selected_cis if selected_cis else []
-        
-        # Process Apprise URLs
-        url_items = [url.strip() for url in apprise_urls.split('\n') if url.strip()]
-        
-        # Validate Apprise URLs
-        if url_items and not validate_apprise_urls(url_items):
-            return [no_update, 'One or more Apprise URLs are invalid.', get_error_style(visible=True), 0]
-        
-        # Create profile object
-        profile = {
-            'name': name,
-            'type': notification_type,
-            'ci_list': ci_items,
-            'apprise_urls': url_items
-        }
-        
-        try:
-            # Load core configurations
-            core_config = load_core_config()
-            config_notifications_config_file = core_config.get('notifications_config_file', 'notifications.json')
-            
-            # Load existing config
-            config = get_notification_config(config_notifications_config_file)
-            
-            if edit_index is not None and 0 <= edit_index < len(config):
-                # Update existing profile
-                config[edit_index] = profile
-            else:
-                # Add new profile
-                config.append(profile)
-            
-            # Save config
-            if save_notification_config(config_notifications_config_file, config):
-                return [{'display': 'none'}, '', get_error_style(visible=False), 0]  # Hide form and reset clicks
-            else:
-                return [no_update, 'Error saving configuration.', get_error_style(visible=True), 0]
-        except Exception as e:
-            return [no_update, f'Error: {str(e)}', get_error_style(visible=True), 0]
-    
-    return [no_update, '', get_error_style(visible=False), 0]
-
-# Callback to handle delete confirmation
-@callback(
-    [Output('delete-confirm', 'displayed'),
-     Output('delete-confirm', 'message'),
-     Output('delete-index-store', 'data')],
-    [Input({'type': 'delete-profile', 'index': dash.ALL}, 'n_clicks')],
-    prevent_initial_call=True
-)
-def show_delete_confirm(delete_clicks):
-    ctx = callback_context
-    if not ctx.triggered:
-        return [False, '', None]
-    
-    # Get the triggered input that caused this callback
-    triggered_input = ctx.triggered[0]
-    
-    # Only show confirmation if a delete button was actually clicked (n_clicks > 0)
-    if triggered_input['value'] <= 0:
-        return [False, '', None]
-    
-    try:
-        button_id = triggered_input['prop_id'].split('.')[0]
-        button_data = json.loads(button_id.replace("'", '"'))
-        index = button_data['index']
-        
-        # Load core configurations
-        core_config = load_core_config()
-        config_notifications_config_file = core_config.get('notifications_config_file', 'notifications.json')
-        
-        config = get_notification_config(config_notifications_config_file)
-        if 0 <= index < len(config):
-            profile_name = config[index].get('name', 'Unnamed Profile')
-            message = f'Sind Sie sicher, dass Sie das Profil "{profile_name}" löschen möchten?'
-            return [True, message, index]
-    except Exception as e:
-        print(f"Error in show_delete_confirm: {e}")
-    
-    return [False, '', None]
-
-# Callback to delete profile
-@callback(
-    Output('delete-confirm', 'submit_n_clicks'),
-    [Input('delete-confirm', 'submit_n_clicks')],
-    [State('delete-index-store', 'data')],
-    prevent_initial_call=True
-)
-def delete_profile(submit_n_clicks, delete_index):
-    if submit_n_clicks == 0 or delete_index is None:
-        return 0
-    
-    try:
-        # Load core configurations
-        core_config = load_core_config()
-        config_notifications_config_file = core_config.get('notifications_config_file', 'notifications.json')
-        
-        # Load config
-        config = get_notification_config(config_notifications_config_file)
-        
-        # Remove profile at index
-        if 0 <= delete_index < len(config):
-            config.pop(delete_index)
-            
-            # Save updated config
-            if save_notification_config(config_notifications_config_file, config):
-                print(f"Successfully deleted profile at index {delete_index}")
-            else:
-                print(f"Failed to save config after deleting profile at index {delete_index}")
-    except Exception as e:
-        print(f"Error in delete_profile: {e}")
-    
-    return submit_n_clicks
-
-# Callback to test Apprise notification
-@callback(
-    Output('test-result', 'children'),
-    [Input('test-notification-button', 'n_clicks')],
-    [State('test-apprise-url', 'value'),
-     State('auth-status', 'data')],
-    prevent_initial_call=True
-)
-def test_apprise_notification(n_clicks, apprise_url, auth_data):
-    if not auth_data.get('authenticated', False):
-        return html.Div('Authentifizierung erforderlich.', style={'color': 'red'})
-    
-    if not apprise_url or not apprise_url.strip():
-        return html.Div('Bitte geben Sie eine Apprise-URL zum Testen ein.', style={'color': 'orange'})
-    
-    try:
-        # Create Apprise object and add the URL
-        apobj = apprise.Apprise()
-        
-        # Add the URL and check if it was added successfully
-        if not apobj.add(apprise_url.strip()):
+        if response.status_code == 200:
             return html.Div([
-                html.I(className='material-icons', children='error', style={'color': 'red', 'margin-right': '8px'}),
-                html.Span('Ungültiges Apprise-URL-Format. Bitte überprüfen Sie die URL-Syntax.', style={'color': 'red'}),
-                html.Br(),
-                html.Span(f'URL: {apprise_url.strip()}', style={'color': 'gray', 'font-size': '0.9em'}),
-                html.Br(),
-                html.Br(),
-                html.Span('Häufiges Mattermost-Format: mmost://username:password@hostname/channel', style={'color': 'blue', 'font-size': '0.9em'}),
-                html.Br(),
-                html.Span('Beispiel: mmost://user:pass@mattermost.medisoftware.org/channel', style={'color': 'blue', 'font-size': '0.9em'})
-            ])
-        
-        # Send test notification
-        result = apobj.notify(
-            title='TI-Monitoring Test-Benachrichtigung',
-            body='Dies ist eine Test-Benachrichtigung von TI-Monitoring. Wenn Sie diese erhalten, funktioniert Ihre Apprise-Konfiguration korrekt!',
-            body_format=apprise.NotifyFormat.TEXT
-        )
-        
-        if result:
-            return html.Div([
-                html.I(className='material-icons', children='check_circle', style={'color': 'green', 'margin-right': '8px'}),
-                html.Span('Test-Benachrichtigung erfolgreich gesendet! Überprüfen Sie Ihr Benachrichtigungsziel.', style={'color': 'green'}),
-                html.Br(),
-                html.Span(f'URL: {apprise_url.strip()}', style={'color': 'gray', 'font-size': '0.9em'}),
-                html.Br(),
-                html.Span('Hinweis: Wenn Sie die Nachricht nicht erhalten, überprüfen Sie Ihren Mattermost-Kanal und die Bot-Berechtigungen.', style={'color': 'blue', 'font-size': '0.9em'})
+                html.P('Einmalcode wurde an Ihre E-Mail-Adresse gesendet.', 
+                      className='alert alert-success')
             ])
         else:
             return html.Div([
-                html.I(className='material-icons', children='error', style={'color': 'red', 'margin-right': '8px'}),
-                html.Span('Test-Benachrichtigung konnte nicht gesendet werden. Bitte überprüfen Sie Ihre Apprise-URL und Konfiguration.', style={'color': 'red'}),
-                html.Br(),
-                html.Span(f'URL: {apprise_url.strip()}', style={'color': 'gray', 'font-size': '0.9em'}),
-                html.Br(),
-                html.Br(),
-                html.Span('Häufige Probleme:', style={'color': 'orange', 'font-weight': 'bold'}),
-                html.Br(),
-                html.Span('• Überprüfen Sie, ob der Mattermost-Server erreichbar ist', style={'color': 'orange'}),
-                html.Br(),
-                html.Span('• Überprüfen Sie Benutzername/Passwort-Anmeldedaten', style={'color': 'orange'}),
-                html.Br(),
-                html.Span('• Stellen Sie sicher, dass der Bot die Berechtigung hat, im Kanal zu posten', style={'color': 'orange'}),
-                html.Br(),
-                html.Span('• Überprüfen Sie die Mattermost-Server-Logs auf Fehler', style={'color': 'orange'})
+                html.P(f'Fehler beim Senden des Einmalcodes: {response.text}', 
+                      className='alert alert-danger')
             ])
-            
     except Exception as e:
         return html.Div([
-            html.I(className='material-icons', children='error', style={'color': 'red', 'margin-right': '8px'}),
-            html.Span(f'Fehler beim Testen der Benachrichtigung: {str(e)}', style={'color': 'red'}),
-            html.Br(),
-            html.Span(f'URL: {apprise_url.strip()}', style={'color': 'gray', 'font-size': '0.9em'}),
-            html.Br(),
-            html.Br(),
-            html.Span('Versuchen Sie stattdessen dieses Format:', style={'color': 'blue', 'font-weight': 'bold'}),
-            html.Br(),
-            html.Span('mmost://username:password@mattermost.medisoftware.org/channel', style={'color': 'blue', 'font-family': 'monospace'})
+            html.P(f'Fehler beim Senden des Einmalcodes: {str(e)}', 
+                  className='alert alert-danger')
         ])
+
+# Auth status callback - handles login and logout
+@callback(
+    [Output('auth-status', 'data'),
+     Output('user-id-store', 'data')],
+    [Input('verify-otp-button', 'n_clicks'),
+     Input('logout-button', 'n_clicks')],
+    [State('email-input', 'value'),
+     State('otp-input', 'value'),
+     State('auth-status', 'data'),
+     State('user-id-store', 'data')],
+    prevent_initial_call=False
+)
+def handle_auth_status(verify_clicks, logout_clicks, email, otp, current_auth, current_user_id):
+    ctx = dash.callback_context
+    
+    # Initial call - check if we have existing auth data
+    if not ctx.triggered:
+        if current_auth and current_auth.get('authenticated', False):
+            return current_auth, current_user_id
+        return {'authenticated': False}, current_user_id
+    
+    triggered_id = ctx.triggered[0]['prop_id'].split('.')[0]
+    
+    if triggered_id == 'logout-button' and logout_clicks and logout_clicks > 0:
+        return {'authenticated': False}, current_user_id
+    elif triggered_id == 'verify-otp-button' and verify_clicks and verify_clicks > 0:
+        # Verify OTP with API
+        if not email or not otp:
+            return {'authenticated': False}, current_user_id
         
+        try:
+            response = requests.post('http://localhost:8050/api/auth/verify_otp', 
+                                   json={'email': email, 'code': otp}, 
+                                   timeout=10)
+            
+            if response.status_code == 200:
+                data = response.json()
+                if data.get('status') == 'ok':
+                    return {'authenticated': True, 'email': email}, current_user_id
+                else:
+                    return {'authenticated': False}, current_user_id
+            else:
+                return {'authenticated': False}, current_user_id
+        except Exception as e:
+            print(f"Error verifying OTP: {e}")
+            return {'authenticated': False}, current_user_id
+    
+    return no_update, no_update
+
+# Profiles callback - handles display, adding, editing, and deleting profiles
+@callback(
+    [Output('profiles-container', 'children'),
+     Output('profile-form', 'style'),
+     Output('profile-name', 'value'),
+     Output('profile-urls', 'value'),
+     Output('profiles-store', 'data')],
+    [Input('auth-status', 'data'),
+     Input('add-profile-button', 'n_clicks'),
+     Input('cancel-profile-button', 'n_clicks'),
+     Input('save-profile-button', 'n_clicks')],
+    [State('profile-form', 'style'),
+     State('profile-name', 'value'),
+     State('profile-urls', 'value'),
+     State('profile-type', 'value'),
+     State('profiles-store', 'data')],
+    prevent_initial_call=False
+)
+def handle_profiles(auth_data, add_clicks, cancel_clicks, save_clicks, form_style, profile_name, profile_urls, profile_type, profiles_data):
+    ctx = dash.callback_context
+    print(f"DEBUG: handle_profiles called with triggered: {ctx.triggered}")
+    
+    # Initial call - check if we have existing auth data
+    if not ctx.triggered:
+        print("DEBUG: Initial call - no trigger")
+        if auth_data and auth_data.get('authenticated', False):
+            email = auth_data.get('email', '') if auth_data else ''
+            print(f"DEBUG: Loading profiles for email: {email}")
+            db_profiles = load_profiles_from_db(email) if email else []
+            print(f"DEBUG: Loaded {len(db_profiles)} profiles from DB")
+            
+            if db_profiles:
+                profile_list = []
+                for i, profile in enumerate(db_profiles):
+                    profile_list.append(html.Div([
+                        html.H5(f"Profil: {profile['name']}"),
+                        html.P(f"Typ: {profile['type']}"),
+                        html.P(f"URLs: {', '.join(profile['urls'])}"),
+                        html.P(f"Erstellt: {profile['created_at']}")
+                    ], className='border p-3 mb-3'))
+                
+                return profile_list, {'display': 'none'}, '', '', []
+            else:
+                return [], {'display': 'none'}, '', '', []
+        else:
+            return [], {'display': 'none'}, '', '', []
+    
+    triggered_id = ctx.triggered[0]['prop_id'].split('.')[0]
+    print(f"DEBUG: Profile callback triggered by: {triggered_id}")
+    
+    # Handle auth-status changes (when user logs in)
+    if triggered_id == 'auth-status':
+        print(f"DEBUG: Auth status changed: {auth_data}")
+        if not auth_data or not auth_data.get('authenticated', False):
+            return [], {'display': 'none'}, '', '', []
+        
+        # Load profiles from database using email from auth data
+        email = auth_data.get('email', '') if auth_data else ''
+        print(f"DEBUG: Loading profiles for email: {email}")
+        db_profiles = load_profiles_from_db(email) if email else []
+        print(f"DEBUG: Loaded {len(db_profiles)} profiles from DB")
+        
+        if db_profiles:
+            profile_list = []
+            for i, profile in enumerate(db_profiles):
+                profile_list.append(html.Div([
+                    html.H5(f"Profil: {profile['name']}"),
+                    html.P(f"Typ: {profile['type']}"),
+                    html.P(f"URLs: {', '.join(profile['urls'])}"),
+                    html.P(f"Erstellt: {profile['created_at']}")
+                ], className='border p-3 mb-3'))
+            
+            return profile_list, {'display': 'none'}, '', '', []
+        else:
+            return [], {'display': 'none'}, '', '', []
+    
+    # Handle save profile button clicks
+    if triggered_id == 'save-profile-button' and save_clicks and save_clicks > 0:
+        print(f"DEBUG: Save profile triggered, auth_data: {auth_data}")
+        if not auth_data or not auth_data.get('authenticated', False):
+            print("DEBUG: Not authenticated, cannot save profile")
+            return [], {'display': 'none'}, '', '', []
+        
+        email = auth_data.get('email', '') if auth_data else ''
+        print(f"DEBUG: Email from auth_data: {email}")
+        if not email:
+            print("DEBUG: No email found in auth_data")
+            return [], {'display': 'none'}, '', '', []
+        
+        # Validate inputs
+        if not profile_name or not profile_name.strip():
+            print("DEBUG: No profile name provided")
+            return [], {'display': 'none'}, '', '', []
+        
+        # Parse URLs
+        urls = []
+        if profile_urls and profile_urls.strip():
+            urls = [url.strip() for url in profile_urls.split('\n') if url.strip()]
+        
+        print(f"DEBUG: Saving profile '{profile_name.strip()}' with {len(urls)} URLs for email {email}")
+        # Save to database
+        result = save_profile_to_db(email, profile_name.strip(), urls, profile_type or 'whitelist')
+        print(f"DEBUG: Save result: {result}")
+        if result['success']:
+            # Reload profiles from database
+            db_profiles = load_profiles_from_db(email)
+            print(f"DEBUG: Reloaded {len(db_profiles)} profiles after save")
+            if db_profiles:
+                profile_list = []
+                for i, profile in enumerate(db_profiles):
+                    profile_list.append(html.Div([
+                        html.H5(f"Profil: {profile['name']}"),
+                        html.P(f"Typ: {profile['type']}"),
+                        html.P(f"URLs: {', '.join(profile['urls'])}"),
+                        html.P(f"Erstellt: {profile['created_at']}")
+                    ], className='border p-3 mb-3'))
+                
+                return profile_list, {'display': 'none'}, '', '', []
+            else:
+                return [], {'display': 'none'}, '', '', []
+        else:
+            print(f"DEBUG: Save failed: {result.get('error', 'Unknown error')}")
+            return [], {'display': 'none'}, '', '', []
+    
+    # Handle add profile button clicks
+    if triggered_id == 'add-profile-button' and add_clicks and add_clicks > 0:
+        print("DEBUG: Add profile button clicked")
+        return [], {'display': 'block', 'border': '1px solid #ccc', 'padding': '20px', 'marginTop': '20px', 'borderRadius': '5px'}, '', '', []
+    
+    # Handle cancel profile button clicks
+    if triggered_id == 'cancel-profile-button' and cancel_clicks and cancel_clicks > 0:
+        print("DEBUG: Cancel profile button clicked")
+        return [], {'display': 'none'}, '', '', []
+    
+    return no_update, no_update, no_update, no_update, no_update
+
+
+# UI visibility callback
+@callback(
+    [Output('login-form', 'style'),
+     Output('authenticated-content', 'style')],
+    [Input('auth-status', 'data')],
+    prevent_initial_call=False
+)
+def update_ui_visibility(auth_data):
+    if auth_data and auth_data.get('authenticated', False):
+        return {'display': 'none'}, {'display': 'block'}
+    else:
+        return {'display': 'block'}, {'display': 'none'}
