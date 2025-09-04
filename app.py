@@ -501,5 +501,38 @@ def api_destination_detail(destination_id: int):
     except Exception as e:
         return make_response(jsonify({'error': str(e)}), 500)
 
+@server.route('/api/notifications/profiles/<int:profile_id>/cis', methods=['GET','PUT'])
+def api_profile_cis(profile_id: int):
+    session_id = request.cookies.get('session_id')
+    user_id = get_user_id_by_session(session_id) if session_id else None
+    if not user_id:
+        return make_response(jsonify({'error': 'unauthorized'}), 401)
+    try:
+        with get_db_conn() as conn, conn.cursor() as cur:
+            # ownership check
+            cur.execute("SELECT 1 FROM notification_profiles WHERE id=%s AND user_id=%s", (profile_id, user_id))
+            if not cur.fetchone():
+                return make_response(jsonify({'error': 'not_found'}), 404)
+            if request.method == 'GET':
+                cur.execute("SELECT ci FROM notification_profile_cis WHERE profile_id=%s ORDER BY ci", (profile_id,))
+                rows = cur.fetchall()
+                return jsonify([r[0] for r in rows])
+            else:
+                data = request.get_json(force=True) or {}
+                ci_list = data.get('ci_list') or []
+                if not isinstance(ci_list, list):
+                    return make_response(jsonify({'error': 'invalid_payload'}), 400)
+                # replace set atomically
+                cur.execute("DELETE FROM notification_profile_cis WHERE profile_id=%s", (profile_id,))
+                if ci_list:
+                    execute_values(cur,
+                        "INSERT INTO notification_profile_cis(profile_id, ci) VALUES %s",
+                        [(profile_id, str(ci)) for ci in ci_list]
+                    )
+                conn.commit()
+                return jsonify({'status': 'ok', 'count': len(ci_list)})
+    except Exception as e:
+        return make_response(jsonify({'error': str(e)}), 500)
+
 if __name__ == '__main__':
     app.run(debug=False)
