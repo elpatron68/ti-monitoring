@@ -213,10 +213,10 @@ def serve_layout():
         
         # Main content
         html.Div([
-            html.H1('Benachrichtigungseinstellungen', className='mb-4'),
+            html.H1('Benachrichtigungseinstellungen'),
             
             # Login form
-            html.Div(id='login-form', children=[
+            html.Div(id='login-form', className='box', children=[
                 html.H3('Anmelden'),
                 html.P('Geben Sie Ihre E-Mail-Adresse ein, um einen Einmalcode zu erhalten.'),
                 html.Div([
@@ -225,88 +225,103 @@ def serve_layout():
                         id='email-input',
                         type='email',
                         placeholder='ihre@email.com',
-                        className='form-control mb-3'
+                        className='form-control'
                     ),
-                    html.Button('Einmalcode anfordern', id='request-otp-button', className='btn btn-primary mb-3'),
+                    html.Div(className='button-group', children=[
+                        html.Button('Einmalcode anfordern', id='request-otp-button', className='button'),
+                    ]),
                     html.Div(id='otp-request-result')
-                ]),
+                ], className='form-group'),
                 html.Div([
                     html.Label('Einmalcode:', className='form-label'),
                     dcc.Input(
                         id='otp-input',
                         type='text',
                         placeholder='123456',
-                        className='form-control mb-3'
+                        className='form-control'
                     ),
-                    html.Button('Anmelden', id='verify-otp-button', className='btn btn-success mb-3'),
+                    html.Div(className='button-group', children=[
+                        html.Button('Anmelden', id='verify-otp-button', className='button'),
+                    ]),
                     html.Div(id='login-error')
-                ])
+                ], className='form-group')
             ]),
             
             # Authenticated content
             html.Div(id='authenticated-content', style={'display': 'none'}, children=[
-                html.H3('Willkommen!'),
-                html.P('Sie sind erfolgreich angemeldet.'),
-                html.Button('Abmelden', id='logout-button', className='btn btn-secondary mb-4'),
+                html.Div([
+                    html.H3('Willkommen!'),
+                    html.P('Sie sind erfolgreich angemeldet.'),
+                    html.Div(className='button-group', children=[
+                        html.Button('Abmelden', id='logout-button', className='button'),
+                    ])
+                ], className='box'),
                 
                 # Profile management
-                html.H4('Profil-Verwaltung'),
-                html.Button('Neues Profil anlegen', id='add-profile-button', className='btn btn-primary mb-3'),
-                
-                # Profile form
-                html.Div(id='profile-form', style={'display': 'none'}, children=[
-                    html.H5('Profil erstellen'),
-                    html.Div([
-                        html.Label('Profilname:', className='form-label'),
-                        dcc.Input(
-                            id='profile-name',
-                            type='text',
-                            placeholder='Mein Profil',
-                            className='form-control mb-3'
-                        ),
-                        html.Label('Profil-Typ:', className='form-label'),
-                        dcc.Dropdown(
-                            id='profile-type',
-                            options=[
-                                {'label': 'Whitelist (nur ausgewählte CIs)', 'value': 'whitelist'},
-                                {'label': 'Blacklist (alle außer ausgewählte CIs)', 'value': 'blacklist'}
-                            ],
-                            value='whitelist',
-                            className='mb-3'
-                        ),
-                        html.Label('Konfigurationsobjekte:', className='form-label'),
+                html.Div([
+                    html.H4('Profil-Verwaltung'),
+                    html.Div(className='button-group', children=[
+                        html.Button('Neues Profil anlegen', id='add-profile-button', className='button'),
+                    ]),
+                    
+                    # Profile form
+                    html.Div(id='profile-form', style={'display': 'none'}, children=[
+                        html.H5('Profil erstellen'),
                         html.Div([
+                            html.Label('Profilname:', className='form-label'),
+                            dcc.Input(
+                                id='profile-name',
+                                type='text',
+                                placeholder='Mein Profil',
+                                className='form-control'
+                            ),
+                        ], className='form-group'),
+                        html.Div([
+                            html.Label('Profil-Typ:', className='form-label'),
+                            dcc.Dropdown(
+                                id='profile-type',
+                                options=[
+                                    {'label': 'Whitelist (nur ausgewählte CIs)', 'value': 'whitelist'},
+                                    {'label': 'Blacklist (alle außer ausgewählte CIs)', 'value': 'blacklist'}
+                                ],
+                                value='whitelist'
+                            ),
+                        ], className='form-group'),
+                        html.Div([
+                            html.Label('Konfigurationsobjekte:', className='form-label'),
                             dcc.Input(
                                 id='ci-filter-input',
                                 type='text',
                                 placeholder='CIs filtern (z.B. "CI-0000" oder "gematik")',
-                                className='form-control mb-2'
+                                className='form-control'
                             ),
-                            html.Div([
-                                html.Button('Alle aktivieren', id='select-all-cis-button', className='btn btn-outline-secondary btn-sm me-2'),
-                                html.Button('Alle deaktivieren', id='deselect-all-cis-button', className='btn btn-outline-secondary btn-sm')
-                            ], className='mb-2'),
-                            html.Div(id='ci-filter-info', className='text-muted small mb-2'),
-                            html.Div(id='ci-checkboxes-container', className='border p-3 mb-3', style={'maxHeight': '200px', 'overflowY': 'auto'})
-                        ]),
-                        html.Label('Benachrichtigungs-URLs (eine pro Zeile):', className='form-label'),
-                        dcc.Textarea(
-                            id='profile-urls',
-                            placeholder='https://api.telegram.org/bot<TOKEN>/sendMessage?chat_id=<CHAT_ID>&text=...\nhttps://hooks.slack.com/services/...',
-                            className='form-control mb-3',
-                            rows=4
-                        ),
+                            html.Div(className='button-group', children=[
+                                html.Button('Alle aktivieren', id='select-all-cis-button', className='button'),
+                                html.Button('Alle deaktivieren', id='deselect-all-cis-button', className='button')
+                            ]),
+                            html.Div(id='ci-filter-info', className='text-muted small'),
+                            html.Div(id='ci-checkboxes-container', className='ci-checkboxes-container')
+                        ], className='form-group'),
                         html.Div([
-                            html.Button('Speichern', id='save-profile-button', className='btn btn-success me-2'),
-                            html.Button('Abbrechen', id='cancel-profile-button', className='btn btn-secondary')
+                            html.Label('Benachrichtigungs-URLs (eine pro Zeile):', className='form-label'),
+                            dcc.Textarea(
+                                id='profile-urls',
+                                placeholder='https://api.telegram.org/bot<TOKEN>/sendMessage?chat_id=<CHAT_ID>&text=...\nhttps://hooks.slack.com/services/...',
+                                className='form-control',
+                                rows=4
+                            ),
+                        ], className='form-group'),
+                        html.Div(className='button-group', children=[
+                            html.Button('Speichern', id='save-profile-button', className='button'),
+                            html.Button('Abbrechen', id='cancel-profile-button', className='button')
                         ])
                     ])
-                ]),
+                ], className='box'),
                 
                 # Profiles container
                 html.Div(id='profiles-container')
             ])
-        ], className='container mt-4')
+        ])
     ])
 
 layout = serve_layout
@@ -604,10 +619,12 @@ def handle_profile_deletion(n_clicks_list, button_ids_list, auth_data):
                     html.P(f"Konfigurationsobjekte: {ci_count}"),
                     html.P(f"URLs: {', '.join(profile['urls'])}"),
                     html.P(f"Erstellt: {profile['created_at']}"),
-                    html.Button('Löschen', 
-                              id={'type': 'delete-profile-button', 'index': profile["id"]},
-                              className='btn btn-danger btn-sm mt-2')
-                ], className='border p-3 mb-3'))
+                    html.Div(className='button-group', children=[
+                        html.Button('Löschen', 
+                                  id={'type': 'delete-profile-button', 'index': profile["id"]},
+                                  className='button')
+                    ])
+                ], className='box'))
             
             return profile_list
         else:
@@ -661,10 +678,12 @@ def handle_profiles(auth_data, add_clicks, cancel_clicks, save_clicks, form_styl
                         html.P(f"Konfigurationsobjekte: {ci_count}"),
                         html.P(f"URLs: {', '.join(profile['urls'])}"),
                         html.P(f"Erstellt: {profile['created_at']}"),
-                        html.Button('Löschen', 
-                                  id={'type': 'delete-profile-button', 'index': profile["id"]},
-                                  className='btn btn-danger btn-sm mt-2')
-                    ], className='border p-3 mb-3'))
+                        html.Div(className='button-group', children=[
+                            html.Button('Löschen', 
+                                      id={'type': 'delete-profile-button', 'index': profile["id"]},
+                                      className='button')
+                        ])
+                    ], className='box'))
                 
                 return profile_list, {'display': 'none'}, '', '', db_profiles, []
             else:
@@ -699,10 +718,12 @@ def handle_profiles(auth_data, add_clicks, cancel_clicks, save_clicks, form_styl
                     html.P(f"Konfigurationsobjekte: {ci_count}"),
                     html.P(f"URLs: {', '.join(profile['urls'])}"),
                     html.P(f"Erstellt: {profile['created_at']}"),
-                    html.Button('Löschen', 
-                              id={'type': 'delete-profile-button', 'index': profile["id"]},
-                              className='btn btn-danger btn-sm mt-2')
-                ], className='border p-3 mb-3'))
+                    html.Div(className='button-group', children=[
+                        html.Button('Löschen', 
+                                  id={'type': 'delete-profile-button', 'index': profile["id"]},
+                                  className='button')
+                    ])
+                ], className='box'))
             
             return profile_list, {'display': 'none'}, '', '', db_profiles, []
         else:
@@ -751,10 +772,12 @@ def handle_profiles(auth_data, add_clicks, cancel_clicks, save_clicks, form_styl
                         html.P(f"Konfigurationsobjekte: {ci_count}"),
                         html.P(f"URLs: {', '.join(profile['urls'])}"),
                         html.P(f"Erstellt: {profile['created_at']}"),
-                        html.Button('Löschen', 
-                                  id={'type': 'delete-profile-button', 'index': profile["id"]},
-                                  className='btn btn-danger btn-sm mt-2')
-                    ], className='border p-3 mb-3'))
+                        html.Div(className='button-group', children=[
+                            html.Button('Löschen', 
+                                      id={'type': 'delete-profile-button', 'index': profile["id"]},
+                                      className='button')
+                        ])
+                    ], className='box'))
                 
                 return profile_list, {'display': 'none'}, '', '', db_profiles, []
             else:
@@ -766,7 +789,7 @@ def handle_profiles(auth_data, add_clicks, cancel_clicks, save_clicks, form_styl
     # Handle add profile button clicks
     if triggered_id == 'add-profile-button' and add_clicks and add_clicks > 0:
         print("DEBUG: Add profile button clicked")
-        return [], {'display': 'block', 'border': '1px solid #ccc', 'padding': '20px', 'marginTop': '20px', 'borderRadius': '5px'}, '', '', [], []
+        return [], {'display': 'block'}, '', '', [], []
     
     # Handle cancel profile button clicks
     if triggered_id == 'cancel-profile-button' and cancel_clicks and cancel_clicks > 0:

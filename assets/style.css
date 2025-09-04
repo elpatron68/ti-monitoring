@@ -256,6 +256,43 @@ header:hover {
   font-size: 1.25rem;
 }
 
+/* Modern Form Elements */
+.form-group {
+  margin-bottom: var(--spacing-md);
+}
+
+.form-label {
+  display: block;
+  margin-bottom: var(--spacing-xs);
+  font-weight: 500;
+  color: var(--gray-700);
+}
+
+.form-control {
+  width: 100%;
+  padding: var(--spacing-sm);
+  border: 1px solid var(--gray-300);
+  border-radius: var(--radius-md);
+  font-family: inherit;
+  font-size: 1rem;
+  box-sizing: border-box;
+  transition: var(--transition-fast);
+}
+
+.form-control:focus {
+  outline: none;
+  border-color: var(--primary-color);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+}
+
+/* Button Groups */
+.button-group {
+  display: flex;
+  gap: var(--spacing-sm);
+  flex-wrap: wrap;
+  margin-top: var(--spacing-sm);
+}
+
 /* Modern Statistics */
 #statistics ul {
   list-style: none;
@@ -265,7 +302,7 @@ header:hover {
 
 /* Modern Buttons */
 .button {
-  font-size: 1.5em;
+  font-size: 1rem;
   cursor: pointer;
   padding: var(--spacing-sm) var(--spacing-md);
   border-radius: var(--radius-md);
@@ -274,12 +311,21 @@ header:hover {
   color: var(--white);
   border: none;
   font-weight: 500;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  min-height: 40px;
 }
 
 .button:hover {
   background: var(--primary-dark);
   transform: translateY(-2px);
   box-shadow: var(--shadow-md);
+}
+
+.button:active {
+  transform: translateY(0);
 }
 
 /* Modern Accordion */
@@ -391,6 +437,17 @@ header:hover {
 
 .accordion-element-content ul li:last-child {
   border-bottom: none;
+}
+
+/* CI Checkboxes Container */
+.ci-checkboxes-container {
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius-md);
+  padding: var(--spacing-md);
+  margin-top: var(--spacing-xs);
+  max-height: 200px;
+  overflow-y: auto;
+  background: var(--white);
 }
 
 /* Modern Links */
@@ -548,6 +605,14 @@ a:any-link:hover {
   
   .time-selector .dash-dropdown {
     min-width: 100%;
+  }
+  
+  .button-group {
+    flex-direction: column;
+  }
+  
+  .button {
+    width: 100%;
   }
 }
 
@@ -895,5 +960,11 @@ a:any-link:hover {
   
   .log-file-info .file-status {
     color: var(--secondary-color);
+  }
+  
+  /* Dark theme for CI checkboxes container */
+  .ci-checkboxes-container {
+    background: var(--white);
+    border: 1px solid var(--gray-200);
   }
 }
