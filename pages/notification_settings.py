@@ -245,6 +245,9 @@ def serve_layout():
         # Edit profile ID store
         dcc.Store(id='edit-profile-id', data=None),
         
+        # Session check interval
+        dcc.Interval(id='check-session-interval', interval=60000, n_intervals=0),
+        
         # Main content
         html.Div([
             html.H1('Benachrichtigungseinstellungen'),
@@ -411,6 +414,22 @@ clientside_callback(
     Output('test-result', 'children'),
     Input('test-notification-button', 'n_clicks'),
     State('test-apprise-url', 'value'),
+    prevent_initial_call='initial_duplicate'
+)
+
+# Clientside callback for session checking
+clientside_callback(
+    ClientsideFunction(namespace="notifications", function_name="checkSession"),
+    Output('auth-status', 'data'),
+    Input('check-session-interval', 'n_intervals'),
+    prevent_initial_call=False
+)
+
+# Clientside callback for logout
+clientside_callback(
+    ClientsideFunction(namespace="notifications", function_name="logout"),
+    Output('auth-status', 'data'),
+    Input('logout-button', 'n_clicks'),
     prevent_initial_call='initial_duplicate'
 )
 

@@ -140,9 +140,20 @@ try {
             headers: { 'Content-Type': 'application/json' },
             credentials: 'include',
             body: JSON.stringify({ email: String(email).trim(), code: String(otp).trim() })
-        }).then(function(resp) { return resp.json(); }).then(function(data) {
+        }).then(function(resp) { 
+            if (resp && resp.ok) {
+                // Store the email in localStorage for later use
+                try {
+                    localStorage.setItem('user_email', String(email).trim());
+                } catch (e) {
+                    console.log("Could not store email in localStorage:", e);
+                }
+                return { authenticated: true, email: String(email).trim() };
+            }
+            return resp.json();
+        }).then(function(data) {
             if (data && data.status === 'ok') {
-                return { authenticated: true };
+                return { authenticated: true, email: String(email).trim() };
             }
             return { authenticated: false };
         }).catch(function() { return { authenticated: false }; });
@@ -153,7 +164,16 @@ try {
             method: 'GET',
             credentials: 'include'
         }).then(function(resp) {
-            if (resp && resp.ok) { return { authenticated: true }; }
+            if (resp && resp.ok) { 
+                // Try to get email from localStorage if available
+                var email = null;
+                try {
+                    email = localStorage.getItem('user_email');
+                } catch (e) {
+                    console.log("Could not retrieve email from localStorage:", e);
+                }
+                return { authenticated: true, email: email };
+            }
             return { authenticated: false };
         }).catch(function() { return { authenticated: false }; });
     };
@@ -172,6 +192,21 @@ try {
             return { msg: 'Löschen fehlgeschlagen: ' + (data && (data.error || 'unbekannt')), ok: false };
         }).catch(function(err) {
             return { msg: 'Löschen fehlgeschlagen: ' + String(err), ok: false };
+        });
+    };
+
+    ns["logout"] = function(n_clicks) {
+        if (!n_clicks || n_clicks < 1) {
+            return window.dash_clientside.no_update;
+        }
+        // Make a request to the logout endpoint to clear the session cookie
+        return fetch('/api/auth/logout', {
+            method: 'POST',
+            credentials: 'include'
+        }).then(function(resp) {
+            return { authenticated: false };
+        }).catch(function() {
+            return { authenticated: false };
         });
     };
     

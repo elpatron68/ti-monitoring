@@ -325,6 +325,15 @@ def api_session_status():
     except Exception as e:
         return make_response(jsonify({'error': str(e)}), 500)
 
+@server.route('/api/auth/logout', methods=['POST'])
+def api_logout():
+    try:
+        resp = make_response(jsonify({'status': 'ok'}))
+        resp.delete_cookie('session_id')
+        return resp
+    except Exception as e:
+        return make_response(jsonify({'error': str(e)}), 500)
+
 @server.route('/api/auth/verify_otp', methods=['POST'])
 def api_verify_otp():
     try:
