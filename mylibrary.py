@@ -155,25 +155,26 @@ def setup_timescaledb_retention(keep_days: int = 185) -> None:
 def init_otp_database_schema():
     """Initialize database schema for multi-user OTP system"""
     with get_db_conn() as conn, conn.cursor() as cur:
-        # Create users table
+        # Create users table - modified to match existing schema
         cur.execute("""
             CREATE TABLE IF NOT EXISTS users (
-                id SERIAL PRIMARY KEY,
-                email TEXT UNIQUE NOT NULL,
-                email_hash TEXT NOT NULL,
-                email_salt TEXT NOT NULL,
+                id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+                email TEXT,
+                email_hash TEXT,
+                email_salt TEXT,
                 created_at TIMESTAMPTZ DEFAULT NOW(),
+                deleted_at TIMESTAMPTZ,
                 last_login TIMESTAMPTZ,
                 failed_login_attempts INTEGER DEFAULT 0,
                 locked_until TIMESTAMPTZ
             );
         """)
         
-        # Create otp_codes table
+        # Create otp_codes table - modified to use UUID for user_id
         cur.execute("""
             CREATE TABLE IF NOT EXISTS otp_codes (
                 id SERIAL PRIMARY KEY,
-                user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+                user_id UUID REFERENCES users(id) ON DELETE CASCADE,
                 otp_hash TEXT NOT NULL,
                 salt TEXT NOT NULL,
                 expires_at TIMESTAMPTZ NOT NULL,
@@ -183,11 +184,11 @@ def init_otp_database_schema():
             );
         """)
         
-        # Create notification_profiles table
+        # Create notification_profiles table - modified to use UUID for user_id
         cur.execute("""
             CREATE TABLE IF NOT EXISTS notification_profiles (
                 id SERIAL PRIMARY KEY,
-                user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+                user_id UUID REFERENCES users(id) ON DELETE CASCADE,
                 name TEXT NOT NULL,
                 type TEXT NOT NULL CHECK (type IN ('whitelist', 'blacklist')),
                 ci_list TEXT[] DEFAULT '{}',
@@ -609,10 +610,22 @@ def get_user_by_email(email):
         email_lower = email.lower()
         for user in users:
             user_id, user_email, email_hash, email_salt, failed_attempts, locked_until = user
-            # Hash the provided email with the user's salt
-            provided_email_hash = hash_with_salt(email_lower, email_salt)
-            if hmac.compare_digest(email_hash, provided_email_hash):
-                return user
+            # If email_salt is None or empty (for existing users), we can't verify the email
+            # In this case, we'll assume the user is valid if email matches
+            if email_salt is None or email_salt == '':
+                # For backward compatibility with existing users
+                if user_email and user_email.lower() == email_lower:
+                    return user
+            else:
+                # Hash the provided email with the user's salt
+                try:
+                    provided_email_hash = hash_with_salt(email_lower, email_salt)
+                    if hmac.compare_digest(email_hash, provided_email_hash):
+                        return user
+                except Exception:
+                    # If hashing fails, fall back to simple email comparison
+                    if user_email and user_email.lower() == email_lower:
+                        return user
                 
         return None
 

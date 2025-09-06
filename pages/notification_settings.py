@@ -1201,7 +1201,8 @@ def show_profile_form(add_clicks, edit_clicks, auth_data):
 @callback(
     [Output('apprise-section', 'style', allow_duplicate=True),
      Output('email-section', 'style', allow_duplicate=True)],
-    [Input('notification-method-radio', 'value')]
+    [Input('notification-method-radio', 'value')],
+    prevent_initial_call=True
 )
 def toggle_notification_method(method):
     if method == 'apprise':
