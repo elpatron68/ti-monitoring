@@ -177,6 +177,10 @@ import os
 import sys
 import apprise
 from datetime import datetime
+import re
+import html as htmllib
+import logging
+logging.basicConfig(level=logging.DEBUG)
 
 def send_test_notification():
     try:
@@ -196,7 +200,7 @@ def send_test_notification():
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S UTC")
         subject = f"TI-Monitoring Test-Benachrichtigung - CI-Ausfall Simulation"
         
-        body = f"""
+        body_html = f"""
 <h2>🔧 TI-Monitoring Test-Benachrichtigung</h2>
 
 <p><strong>Zeit:</strong> {timestamp}</p>
@@ -213,18 +217,63 @@ def send_test_notification():
     <li><strong>Skript:</strong> simulate_ci_outage.sh</li>
     <li><strong>APPRISE_URL:</strong> {apprise_url[:50]}...</li>
     <li><strong>Simulation ID:</strong> test-{int(datetime.now().timestamp())}</li>
+    <li><a href="https://ti-stats.net">Zur App</a></li>
+    <li><a href="https://mastodon.ti-stats.net/@tistatus">Unser Mastodon</a></li>
+    
 </ul>
 
 <hr>
 <p><em>Diese Nachricht wurde automatisch vom TI-Monitoring CI-Ausfall-Simulator generiert.</em></p>
 """
+
+        def html_to_text(s: str) -> str:
+            def repl_a(m):
+                href, text = m.group(1), m.group(2)
+                return f"{text} ({href})"
+            s = re.sub(r"<a [^>]*href=\"([^\"]+)\"[^>]*>(.*?)</a>", repl_a, s, flags=re.I|re.S)
+            s = re.sub(r"<\s*br\s*/?\s*>", "\n", s, flags=re.I)
+            s = re.sub(r"</\s*p\s*>", "\n\n", s, flags=re.I)
+            s = re.sub(r"<\s*p\s*[^>]*>", "", s, flags=re.I)
+            s = re.sub(r"<\s*li\s*[^>]*>", "- ", s, flags=re.I)
+            s = re.sub(r"</\s*li\s*>", "\n", s, flags=re.I)
+            s = re.sub(r"<[^>]+>", "", s)
+            try:
+                s = htmllib.unescape(s)
+            except Exception:
+                pass
+            s = re.sub(r"\n{3,}", "\n\n", s).strip()
+            return s
+
+        scheme = apprise_url.split('://', 1)[0].lower()
+        email_schemes = { 'mailto', 'gmail', 'ses', 'sendgrid', 'outlook', 'resend' }
+        mastodon_schemes = { 'toots', 'mastodon', 'mastodons' }
+
+        print(f"Scheme: {scheme}")
+        if scheme in email_schemes:
+            body = body_html
+            body_fmt = apprise.NotifyFormat.HTML
+            title_to_send = subject
+        elif scheme in mastodon_schemes:
+            # Merge title into body and trim aggressively
+            body = html_to_text((subject + "\n\n" + body_html).strip())
+            max_len = 460
+            if len(body) > max_len:
+                body = body[:max_len].rstrip() + '…'
+            body_fmt = apprise.NotifyFormat.TEXT
+            title_to_send = ''
+        else:
+            body = html_to_text(body_html)
+            body_fmt = apprise.NotifyFormat.MARKDOWN
+            title_to_send = subject
+        print(f"Body format: {body_fmt}; length={len(body)} title_len={len(title_to_send)}")
         
         # Benachrichtigung senden
         success = apobj.notify(
-            title=subject,
+            title=title_to_send,
             body=body,
-            body_format=apprise.NotifyFormat.HTML
+            body_format=body_fmt
         )
+        print(f"notify() returned: {success}")
         
         if success:
             print("SUCCESS: Test-Benachrichtigung erfolgreich gesendet")
@@ -242,9 +291,9 @@ if __name__ == "__main__":
     sys.exit(0 if success else 1)
 EOF
 
-# Python-Script ausführen
+# Python-Script ausführen (immer .venv nutzen)
 export CI_ID DURATION_MINUTES APPRISE_TEST_URL
-if python3 /tmp/test_notification.py; then
+if .venv/bin/python /tmp/test_notification.py; then
     log_success "Test-Benachrichtigung erfolgreich gesendet"
 else
     log_error "Fehler beim Senden der Test-Benachrichtigung"
