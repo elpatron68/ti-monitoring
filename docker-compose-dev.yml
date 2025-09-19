@@ -21,6 +21,8 @@ services:
       args:
         TI_VERSION: ${TI_VERSION}
         TI_COMMIT: ${TI_COMMIT}
+        HTTP_PROXY: ${HTTP_PROXY}
+        HTTPS_PROXY: ${HTTPS_PROXY}
     volumes:
       - ./config.yaml:/app/config.yaml
       - ./.env:/app/.env
@@ -48,6 +50,8 @@ services:
       args:
         TI_VERSION: ${TI_VERSION}
         TI_COMMIT: ${TI_COMMIT}
+        HTTP_PROXY: ${HTTP_PROXY}
+        HTTPS_PROXY: ${HTTPS_PROXY}
     volumes:
       - ./config.yaml:/app/config.yaml
       - appdata:/app/data
