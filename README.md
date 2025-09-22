@@ -65,7 +65,7 @@ TI-Monitoring kann sowohl mit Docker als auch mit Python *venv* installiert werd
 
 ```bash
 # Repository klonen
-git clone https://github.com/lsr-dev/ti-monitoring.git
+git clone https://github.com/elpatron68/ti-monitoring.git
 cd ti-monitoring
 
 # Konfigurationsdateien einrichten
