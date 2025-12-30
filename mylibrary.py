@@ -468,7 +468,9 @@ def get_recent_incidents(limit: int = 5) -> list:
             cm.product
         FROM incidents i
         LEFT JOIN ci_metadata cm ON i.ci = cm.ci
-        ORDER BY i.incident_start DESC
+        ORDER BY 
+            CASE WHEN i.status = 'ongoing' THEN 0 ELSE 1 END,
+            i.incident_start DESC
         LIMIT %s
         """
         
