@@ -122,6 +122,44 @@ def update_ci_metadata(ci_data):
         )
         return cur.rowcount
 
+def remove_inactive_cis(active_ci_ids):
+    """
+    Entfernt CIs aus ci_metadata, ci_downtimes und measurements, die nicht in der Liste active_ci_ids enthalten sind.
+    Dies bereinigt alte CIs, die nicht mehr von der API geliefert werden.
+    """
+    if not active_ci_ids:
+        return 0
+        
+    with get_db_conn() as conn, conn.cursor() as cur:
+        # Convert to tuple for SQL IN clause
+        ci_tuple = tuple(active_ci_ids)
+        try:
+            # 1. Measurements (potentially large, deleted first to avoid potential constraints?)
+            # Actually, metadata is usually parent. But we check for dependencies.
+            # No explicit foreign keys defined in init_timescaledb_schema for measurements -> metadata
+            
+            # Delete from ci_downtimes
+            cur.execute("DELETE FROM ci_downtimes WHERE ci NOT IN %s", (ci_tuple,))
+            downtimes_deleted = cur.rowcount
+            
+            # Delete from measurements (TimescaleDB hypertable)
+            cur.execute("DELETE FROM measurements WHERE ci NOT IN %s", (ci_tuple,))
+            measurements_deleted = cur.rowcount
+
+            # Delete from ci_metadata
+            query = "DELETE FROM ci_metadata WHERE ci NOT IN %s"
+            cur.execute(query, (ci_tuple,))
+            metadata_deleted = cur.rowcount
+            
+            if metadata_deleted > 0 or measurements_deleted > 0:
+                print(f"Cleaned up inactive CIs: {metadata_deleted} metadata, {measurements_deleted} measurements, {downtimes_deleted} downtimes entries removed.")
+                
+            return metadata_deleted
+        except Exception as e:
+            print(f"Error removing inactive CIs: {e}")
+            return 0
+
+
 def ingest_hdf5_to_timescaledb(hdf5_path: str, max_rows: Optional[int] = None) -> int:
     """Streamt availability aus HDF5 und schreibt idempotent nach TimescaleDB.
     max_rows: optionales Limit zur Drosselung pro Lauf.
@@ -941,6 +979,11 @@ def update_file(file_name, url):
                 init_timescaledb_schema()
                 write_measurements(measurements_data)
                 update_ci_metadata(ci_metadata_data)
+                
+                # Cleanup inactive CIs
+                active_ci_ids = [m[0] for m in measurements_data]
+                remove_inactive_cis(active_ci_ids)
+                
                 print(f"Written {len(measurements_data)} measurements and {len(ci_metadata_data)} CI metadata to TimescaleDB")
             except Exception as e:
                 print(f"TimescaleDB write failed: {e}")
