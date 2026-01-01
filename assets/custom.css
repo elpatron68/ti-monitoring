@@ -203,8 +203,8 @@ input:focus, textarea:focus {
     white-space: nowrap;
 }
 
-/* Dark mode only on small screens: increase contrast for tables */
-@media (prefers-color-scheme: dark) and (max-width: 768px) {
+/* Dark mode: increase contrast for tables */
+@media (prefers-color-scheme: dark) {
     .incidents-container {
         background: #0b1220;
         border: 1px solid #374151;
