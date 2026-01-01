@@ -60,11 +60,17 @@ GIT_TAG=$(git describe --tags --always 2>/dev/null || echo "")
 GIT_SHA=$(git rev-parse --short HEAD 2>/dev/null || echo "")
 
 # Führe Docker Compose aus und fange Port-Fehler ab
-if ! docker compose -f docker-compose.yml down && \
-  docker compose -f docker-compose.yml build \
-    --build-arg TI_VERSION="$GIT_TAG" \
-    --build-arg TI_COMMIT="$GIT_SHA" && \
-  docker compose -f docker-compose.yml up -d; then
+# Export variables to suppress warnings during down/up
+export TI_VERSION="$GIT_TAG"
+export TI_COMMIT="$GIT_SHA"
+
+if docker compose -f docker-compose.yml down && \
+   docker compose -f docker-compose.yml build \
+     --build-arg TI_VERSION="$GIT_TAG" \
+     --build-arg TI_COMMIT="$GIT_SHA" && \
+   docker compose -f docker-compose.yml up -d; then
+  echo "Docker restart successful."
+else
   echo ""
   echo "FEHLER: Docker Compose konnte nicht erfolgreich ausgeführt werden."
   if check_rootless_docker && ! check_unprivileged_ports; then
