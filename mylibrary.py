@@ -429,47 +429,51 @@ def get_recent_incidents(limit: int = 5) -> list:
     
     with get_db_conn() as conn:
         incidents_query = """
-        WITH incident_transitions AS (
+            WITH status_changes AS (
+                SELECT 
+                    ci,
+                    ts,
+                    status,
+                    LAG(status) OVER (PARTITION BY ci ORDER BY ts) as prev_status
+                FROM measurements
+            ),
+            incident_starts AS (
+                SELECT 
+                    ci, 
+                    ts as incident_start
+                FROM status_changes
+                WHERE status = 0 AND prev_status = 1
+            )
             SELECT 
-                ci,
-                ts,
-                status,
-                LAG(status) OVER (PARTITION BY ci ORDER BY ts) as prev_status,
-                LEAD(ts) OVER (PARTITION BY ci ORDER BY ts) as next_ts
-            FROM measurements
-            ORDER BY ci, ts
-        ),
-        incidents AS (
-            SELECT 
-                ci,
-                ts as incident_start,
-                next_ts as incident_end,
+                ist.ci,
+                ist.incident_start,
+                ends.ts as incident_end,
                 CASE 
-                    WHEN next_ts IS NOT NULL THEN 
-                        EXTRACT(EPOCH FROM (next_ts - ts)) / 60.0
+                    WHEN ends.ts IS NOT NULL THEN 
+                        EXTRACT(EPOCH FROM (ends.ts - ist.incident_start)) / 60.0
                     ELSE 
-                        EXTRACT(EPOCH FROM (NOW() - ts)) / 60.0
+                        EXTRACT(EPOCH FROM (NOW() - ist.incident_start)) / 60.0
                 END as duration_minutes,
                 CASE 
-                    WHEN next_ts IS NULL THEN 'ongoing'
+                    WHEN ends.ts IS NULL THEN 'ongoing'
                     ELSE 'resolved'
-                END as status
-            FROM incident_transitions
-            WHERE status = 0 AND prev_status = 1
-        )
-        SELECT 
-            i.ci,
-            i.incident_start,
-            i.incident_end,
-            i.duration_minutes,
-            i.status,
-            cm.name,
-            cm.organization,
-            cm.product
-        FROM incidents i
-        LEFT JOIN ci_metadata cm ON i.ci = cm.ci
-        ORDER BY i.incident_start DESC
-        LIMIT %s
+                END as status,
+                cm.name,
+                cm.organization,
+                cm.product
+            FROM incident_starts ist
+            LEFT JOIN LATERAL (
+                SELECT ts
+                FROM measurements m
+                WHERE m.ci = ist.ci AND m.ts > ist.incident_start AND m.status = 1
+                ORDER BY ts ASC
+                LIMIT 1
+            ) ends ON TRUE
+            LEFT JOIN ci_metadata cm ON ist.ci = cm.ci
+            ORDER BY 
+                (CASE WHEN ends.ts IS NULL THEN 0 ELSE 1 END) ASC,
+                ist.incident_start DESC
+            LIMIT %s
         """
         
         with conn.cursor() as cur:
