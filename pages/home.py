@@ -100,9 +100,9 @@ def create_incidents_table(incidents_data, show_all=False):
                 html.Br(),
                 html.Span(incident['product'], className='product-name')
             ]),
-            html.Td(start_time, className='timestamp'),
-            html.Td(end_time, className='timestamp'),
-            html.Td(duration_text, className='duration'),
+            html.Td(start_time, style={'whiteSpace': 'nowrap'}),
+            html.Td(end_time, style={'whiteSpace': 'nowrap'}),
+            html.Td(duration_text, style={'whiteSpace': 'nowrap'}),
             html.Td([
                 html.Span(status_text, className=f'status-badge {status_class}')
             ])
