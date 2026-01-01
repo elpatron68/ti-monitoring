@@ -1070,15 +1070,20 @@ def get_data_of_all_cis(file_name):
                     ELSE 0 
                 END as availability_difference
             FROM ci_metadata cm
-            LEFT JOIN (
-                SELECT DISTINCT ON (ci) 
-                    ci, 
-                    ts, 
-                    status,
-                    LAG(status) OVER (PARTITION BY ci ORDER BY ts) as prev_status
-                FROM measurements 
-                ORDER BY ci, ts DESC
-            ) ls ON cm.ci = ls.ci
+            LEFT JOIN LATERAL (
+                SELECT 
+                    status, 
+                    ts,
+                    LEAD(status) OVER (ORDER BY ts DESC) as prev_status
+                FROM (
+                    SELECT status, ts
+                    FROM measurements
+                    WHERE ci = cm.ci 
+                    ORDER BY ts DESC
+                    LIMIT 2
+                ) sub
+                LIMIT 1
+            ) ls ON true
             ORDER BY cm.ci
             """
             with conn.cursor() as cur:
@@ -1117,14 +1122,6 @@ def get_all_cis_with_downtimes() -> pd.DataFrame:
     try:
         with get_db_conn() as conn:
             query = """
-            WITH latest_status AS (
-                SELECT DISTINCT ON (ci)
-                    ci,
-                    status,
-                    ts
-                FROM measurements
-                ORDER BY ci, ts DESC
-            )
             SELECT 
                 cm.ci,
                 COALESCE(cm.name, '') as name,
@@ -1134,7 +1131,13 @@ def get_all_cis_with_downtimes() -> pd.DataFrame:
                 COALESCE(cd.downtime_7d_min, 0) as downtime_7d_min,
                 COALESCE(cd.downtime_30d_min, 0) as downtime_30d_min
             FROM ci_metadata cm
-            LEFT JOIN latest_status ls ON cm.ci = ls.ci
+            LEFT JOIN LATERAL (
+                SELECT status 
+                FROM measurements 
+                WHERE ci = cm.ci 
+                ORDER BY ts DESC 
+                LIMIT 1
+            ) ls ON true
             LEFT JOIN ci_downtimes cd ON cm.ci = cd.ci
             ORDER BY cm.ci
             """
