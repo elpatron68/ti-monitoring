@@ -1,5 +1,7 @@
 # Import packages
 from mylibrary import *
+import warnings
+warnings.filterwarnings('ignore', category=UserWarning, message='.*pandas only supports SQLAlchemy connectable.*')
 import yaml
 import os
 import time
