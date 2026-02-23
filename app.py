@@ -70,6 +70,9 @@ app = Dash(
         {"property": "og:title", "content": "TI-Stats"},
         {"property": "og:description", "content": "Verfügbarkeit, Statistiken und Benachrichtigungen für TI-Komponenten."},
         {"name": "twitter:card", "content": "summary_large_image"}
+    ],
+    external_scripts=[
+        {"src": "https://plausible.elpatron.me/js/script.js", "defer": True, "data-domain": "ti-stats.net"}
     ]
 )
 server = app.server
